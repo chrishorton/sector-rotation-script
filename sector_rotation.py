@@ -262,6 +262,69 @@ def calculate_ema(prices: pd.Series, period: int) -> pd.Series:
     return prices.ewm(span=period, adjust=False).mean()
 
 
+def calculate_rsi(prices: pd.Series, period: int = 14) -> dict:
+    """
+    Calculate RSI (Relative Strength Index).
+    
+    RSI = 100 - (100 / (1 + RS))
+    RS = Average Gain / Average Loss over period
+    
+    Returns:
+        dict with RSI value and condition
+    """
+    if len(prices) < period + 1:
+        return {'valid': False}
+    
+    # Calculate price changes
+    delta = prices.diff()
+    
+    # Separate gains and losses
+    gains = delta.copy()
+    losses = delta.copy()
+    gains[gains < 0] = 0
+    losses[losses > 0] = 0
+    losses = abs(losses)
+    
+    # Calculate average gain/loss using EMA (Wilder's smoothing)
+    avg_gain = gains.ewm(alpha=1/period, min_periods=period, adjust=False).mean()
+    avg_loss = losses.ewm(alpha=1/period, min_periods=period, adjust=False).mean()
+    
+    # Calculate RS and RSI
+    rs = avg_gain / avg_loss
+    rsi = 100 - (100 / (1 + rs))
+    
+    current_rsi = rsi.iloc[-1]
+    
+    # Determine condition
+    if current_rsi >= 70:
+        condition = "OVERBOUGHT"
+        emoji = "🔴"
+    elif current_rsi >= 60:
+        condition = "BULLISH"
+        emoji = "🟢"
+    elif current_rsi <= 30:
+        condition = "OVERSOLD"
+        emoji = "🟢"  # Oversold can be bullish for entry
+    elif current_rsi <= 40:
+        condition = "BEARISH"
+        emoji = "🔴"
+    else:
+        condition = "NEUTRAL"
+        emoji = "⚪"
+    
+    # RSI trend (is it rising or falling?)
+    rsi_5_ago = rsi.iloc[-5] if len(rsi) >= 5 else current_rsi
+    rsi_trend = current_rsi - rsi_5_ago
+    
+    return {
+        'valid': True,
+        'rsi': current_rsi,
+        'condition': condition,
+        'emoji': emoji,
+        'rsi_trend': rsi_trend,  # Positive = RSI rising
+    }
+
+
 def get_ema_structure(prices: pd.Series) -> dict:
     """
     Analyze EMA structure for a price series.
@@ -497,6 +560,9 @@ def analyze_individual_stock(ticker: str, data: pd.DataFrame, benchmark_prices: 
         # Consolidation
         consolidation = calculate_consolidation_score(prices)
         
+        # RSI
+        rsi_data = calculate_rsi(prices, period=14)
+        
         # Key levels
         levels = calculate_key_levels(prices, highs, lows)
         
@@ -504,7 +570,7 @@ def analyze_individual_stock(ticker: str, data: pd.DataFrame, benchmark_prices: 
         sector = WATCHLIST_SECTORS.get(ticker, "Unknown")
         
         # Setup score (for ranking)
-        # Higher = better setup for your style (RS divergence + consolidation)
+        # Higher = better setup for your style (RS divergence + consolidation + good RSI)
         setup_score = 0
         if divergence == "BULLISH":
             setup_score += 30
@@ -516,6 +582,12 @@ def analyze_individual_stock(ticker: str, data: pd.DataFrame, benchmark_prices: 
             setup_score += 15
         if volume_ratio > 1.2:
             setup_score += 10
+        # RSI bonus: oversold with positive RS = great entry
+        if rsi_data.get('valid'):
+            if rsi_data['rsi'] <= 35 and rs_short > 0:
+                setup_score += 20  # Oversold but RS strong = accumulation
+            elif rsi_data['rsi'] >= 70:
+                setup_score -= 10  # Overbought = caution
         
         return {
             'valid': True,
@@ -533,6 +605,7 @@ def analyze_individual_stock(ticker: str, data: pd.DataFrame, benchmark_prices: 
             'ema_structure': ema_data,
             'volume_ratio': volume_ratio,
             'consolidation': consolidation,
+            'rsi': rsi_data,
             'levels': levels,
             'setup_score': setup_score,
         }
@@ -682,13 +755,26 @@ def print_watchlist_report(stock_analyses: List[dict], top_n: int = 5, sections:
             ema = s.get('ema_structure', {})
             consol = s.get('consolidation', {})
             levels = s.get('levels', {})
+            rsi = s.get('rsi', {})
             
             divergence_flag = f"⚡ {s['divergence']} DIV" if s.get('divergence') else ""
             squeeze_flag = "🔸 SQUEEZE" if consol.get('is_squeezing') else ""
-            flags = " ".join(filter(None, [divergence_flag, squeeze_flag]))
+            
+            # RSI flag
+            rsi_flag = ""
+            if rsi.get('valid'):
+                if rsi['rsi'] <= 35:
+                    rsi_flag = "🟢 OVERSOLD"
+                elif rsi['rsi'] >= 70:
+                    rsi_flag = "🔴 OVERBOUGHT"
+            
+            flags = " ".join(filter(None, [divergence_flag, squeeze_flag, rsi_flag]))
+            
+            # RSI display
+            rsi_str = f"RSI: {rsi['rsi']:.0f}" if rsi.get('valid') else ""
             
             print(f"  {i}. {s['ticker']:<6} | {s['sector']:<14} | Score: {s['setup_score']:<3.0f}")
-            print(f"     Price: ${s['price']:.2f} | Week: {format_pct(s['week_pct'])} | RS(8): {format_pct(s['rs_8'])}")
+            print(f"     Price: ${s['price']:.2f} | Week: {format_pct(s['week_pct'])} | RS(8): {format_pct(s['rs_8'])} | {rsi_str}")
             print(f"     Trend: {ema.get('trend_emoji', '❓')} {ema.get('trend', 'N/A'):<15} | Vol: {s['volume_ratio']:.1f}x")
             if flags:
                 print(f"     Flags: {flags}")
@@ -739,21 +825,73 @@ def print_watchlist_report(stock_analyses: List[dict], top_n: int = 5, sections:
         else:
             print("  No squeeze setups detected")
     
+    # RSI Extremes section
+    if sections.get('watchlist', True) or sections.get('top5', True):
+        print_header("📊 RSI EXTREMES (Oversold/Overbought)")
+        
+        # Oversold with strong RS = potential long entry
+        oversold = [s for s in valid_stocks if s.get('rsi', {}).get('valid') and s['rsi']['rsi'] <= 35]
+        oversold = sorted(oversold, key=lambda x: x['rsi']['rsi'])
+        
+        # Overbought = caution or short candidate
+        overbought = [s for s in valid_stocks if s.get('rsi', {}).get('valid') and s['rsi']['rsi'] >= 65]
+        overbought = sorted(overbought, key=lambda x: x['rsi']['rsi'], reverse=True)
+        
+        print("\n  🟢 OVERSOLD (RSI < 35) - Potential bounce candidates:")
+        if oversold:
+            print(f"    {'Ticker':<8} {'RSI':<8} {'RS(8)':<10} {'Trend':<15} {'Signal':<20}")
+            print("    " + "-" * 60)
+            for s in oversold[:10]:
+                rsi = s.get('rsi', {})
+                ema = s.get('ema_structure', {})
+                # Best signal: oversold + positive RS = accumulation
+                if s['rs_8'] > 0:
+                    signal = "⚡ ACCUMULATION"
+                else:
+                    signal = "Falling knife"
+                print(f"    {s['ticker']:<8} {rsi['rsi']:>5.1f}   {format_pct(s['rs_8']):<10} "
+                      f"{ema.get('trend_emoji', '')} {ema.get('trend', 'N/A')[:12]:<12} {signal:<20}")
+        else:
+            print("    None in watchlist")
+        
+        print("\n  🔴 OVERBOUGHT (RSI > 65) - Extended, use caution:")
+        if overbought:
+            print(f"    {'Ticker':<8} {'RSI':<8} {'RS(8)':<10} {'Trend':<15} {'Signal':<20}")
+            print("    " + "-" * 60)
+            for s in overbought[:10]:
+                rsi = s.get('rsi', {})
+                ema = s.get('ema_structure', {})
+                # Overbought + strong RS = momentum, but extended
+                if rsi['rsi'] >= 75:
+                    signal = "⚠️  Very extended"
+                elif s['rs_8'] > 3:
+                    signal = "Strong momentum"
+                else:
+                    signal = "Getting tired"
+                print(f"    {s['ticker']:<8} {rsi['rsi']:>5.1f}   {format_pct(s['rs_8']):<10} "
+                      f"{ema.get('trend_emoji', '')} {ema.get('trend', 'N/A')[:12]:<12} {signal:<20}")
+        else:
+            print("    None in watchlist")
+    
     # Full watchlist table
     if sections.get('watchlist', True):
         print_header("📋 FULL WATCHLIST STATUS")
-        print(f"  {'Ticker':<7} {'Sector':<12} {'Price':<10} {'Week':<9} {'RS(8)':<9} {'RS(21)':<9} {'Trend':<12}")
-        print("  " + "-" * 76)
+        print(f"  {'Ticker':<7} {'Sector':<11} {'Price':<9} {'Week':<8} {'RS(8)':<8} {'RSI':<6} {'Trend':<12}")
+        print("  " + "-" * 70)
         
         # Sort by RS(8)
         sorted_stocks = sorted(valid_stocks, key=lambda x: x.get('rs_8', 0), reverse=True)
         
         for s in sorted_stocks:
             ema = s.get('ema_structure', {})
-            trend_str = f"{ema.get('trend_emoji', '❓')} {ema.get('trend', 'N/A')[:10]}"
-            print(f"  {s['ticker']:<7} {s['sector'][:11]:<12} ${s['price']:<9.2f} "
-                  f"{format_pct(s['week_pct']):<9} {format_pct(s['rs_8']):<9} "
-                  f"{format_pct(s['rs_21']):<9} {trend_str:<12}")
+            rsi = s.get('rsi', {})
+            trend_str = f"{ema.get('trend_emoji', '❓')} {ema.get('trend', 'N/A')[:9]}"
+            rsi_str = f"{rsi.get('rsi', 0):>4.0f}" if rsi.get('valid') else "  - "
+            # Add RSI emoji
+            rsi_emoji = rsi.get('emoji', '') if rsi.get('valid') else ''
+            print(f"  {s['ticker']:<7} {s['sector'][:10]:<11} ${s['price']:<8.2f} "
+                  f"{format_pct(s['week_pct']):<8} {format_pct(s['rs_8']):<8} "
+                  f"{rsi_str}{rsi_emoji} {trend_str:<12}")
     
     # Key levels summary for top setups
     if sections.get('levels', True):
