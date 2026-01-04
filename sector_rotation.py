@@ -1,35 +1,50 @@
 #!/usr/bin/env python3
 """
-Sector Rotation Tracker
------------------------
-Tracks money flow between market sectors to identify rotation patterns.
-Designed to run 3x daily: morning (9:45 ET), midday (12:30 ET), close (4:05 ET)
+Sector Rotation Tracker (Simplified, Tradeable Output)
+------------------------------------------------------
 
-Metrics computed:
-- Rate of Change (ROC) at 8 and 21 periods
-- 8/21 EMA trend structure
-- Relative strength vs SPY
-- Volume-weighted performance
+A CLI tool that helps you find swing trade setups by analyzing where money is flowing across market sectors
+and ranking your watchlist by actionable signals.
+
+Designed for:
+- Swing trading options (days to weeks)
+- Price action + levels (support/resistance)
+- RS divergence edge (accumulation before breakout)
+- Limited screen time (day job)
+
+Key outputs (simplified):
+- Dashboard (default): one-screen market + top/bottom sectors + top 5 actionable names
+- Focus list (--focus): slightly more detail for trade planning
+- Single ticker (--ticker): compact quick-check with levels + verdict
+- AI-ready markdown report (--md rot_report.md)
+- Copy/paste prompts for AI trade plans (--print-prompt daily|weekly)
+
+Data: yfinance (3mo, 1d)
+
+Notes:
+- No per-ticker yfinance calls in default path (faster, fewer rate-limit issues).
 """
 
-import yfinance as yf
-import pandas as pd
-import numpy as np
-from datetime import datetime, timedelta
-from typing import Dict, List, Tuple, Tuple
-import pytz
-import warnings
 import argparse
 import json
+import os
+import warnings
+from datetime import datetime
+from pathlib import Path
+from typing import Dict, List, Tuple
 
-warnings.filterwarnings('ignore')
+import numpy as np
+import pandas as pd
+import pytz
+import yfinance as yf
+
+warnings.filterwarnings("ignore")
 
 # =============================================================================
 # CONFIGURATION
 # =============================================================================
 
 SECTORS = {
-    # Sector name: [ETF symbols]
     "Tech": ["XLK", "QQQ"],
     "Energy": ["XLE"],
     "China": ["FXI", "KWEB"],
@@ -43,7 +58,6 @@ SECTORS = {
     "Materials": ["XLB"],
 }
 
-# Primary ETF for each sector (used for main ranking)
 PRIMARY_ETFS = {
     "Tech": "XLK",
     "Energy": "XLE",
@@ -60,125 +74,153 @@ PRIMARY_ETFS = {
 
 BENCHMARK = "SPY"
 
-# Individual names watchlist - loaded from CSV
-# Default fallback if CSV not found
 DEFAULT_WATCHLIST = [
-    "IONQ", "RGTI", "GOOGL", "MSFT", "AAPL", "AMZN", "META", "NFLX", "ORCL", "SNOW", "DDOG", "ARM", "QCOM",
-    "IREN", "CORZ", "HIVE",
-    "TSLA", "UBER", "RDDT", "HIMS", "LULU", "COST",
-    "OUST", "PL", "RDW", "SMCI", "NBIS",
-    "ZETA", "TEM", "BABA",
-    "ABT", "UNH",
-    "GS", "JPM",
-    "EOSE", "CRVW", "XYZ",
+    "IONQ",
+    "RGTI",
+    "GOOGL",
+    "MSFT",
+    "AAPL",
+    "AMZN",
+    "META",
+    "NFLX",
+    "ORCL",
+    "SNOW",
+    "DDOG",
+    "ARM",
+    "QCOM",
+    "IREN",
+    "CORZ",
+    "HIVE",
+    "TSLA",
+    "UBER",
+    "RDDT",
+    "HIMS",
+    "LULU",
+    "COST",
+    "OUST",
+    "PL",
+    "RDW",
+    "SMCI",
+    "NBIS",
+    "ZETA",
+    "TEM",
+    "BABA",
+    "ABT",
+    "UNH",
+    "GS",
+    "JPM",
+    "EOSE",
+    "CRVW",
+    "XYZ",
 ]
 
 DEFAULT_WATCHLIST_SECTORS = {
-    "IONQ": "Quantum", "RGTI": "Quantum",
-    "GOOGL": "Tech", "MSFT": "Tech", "AAPL": "Tech", "AMZN": "Tech", "META": "Tech",
-    "NFLX": "Tech", "ORCL": "Tech", "SNOW": "Tech", "DDOG": "Tech", "ARM": "Tech", "QCOM": "Tech",
-    "IREN": "Crypto/Mining", "CORZ": "Crypto/Mining", "HIVE": "Crypto/Mining",
-    "TSLA": "EV/Growth", "UBER": "EV/Growth", "RDDT": "Growth", "HIMS": "Growth", "LULU": "Retail", "COST": "Retail",
-    "OUST": "LIDAR/Hardware", "PL": "Space", "RDW": "Space", "SMCI": "Hardware", "NBIS": "AI Infra",
-    "ZETA": "AdTech", "TEM": "AI/Health", "BABA": "China",
-    "ABT": "Healthcare", "UNH": "Healthcare",
-    "GS": "Financials", "JPM": "Financials",
-    "EOSE": "Energy Storage", "CRVW": "Industrials", "XYZ": "Other",
+    "IONQ": "Quantum",
+    "RGTI": "Quantum",
+    "GOOGL": "Tech",
+    "MSFT": "Tech",
+    "AAPL": "Tech",
+    "AMZN": "Tech",
+    "META": "Tech",
+    "NFLX": "Tech",
+    "ORCL": "Tech",
+    "SNOW": "Tech",
+    "DDOG": "Tech",
+    "ARM": "Tech",
+    "QCOM": "Tech",
+    "IREN": "Crypto/Mining",
+    "CORZ": "Crypto/Mining",
+    "HIVE": "Crypto/Mining",
+    "TSLA": "EV/Growth",
+    "UBER": "EV/Growth",
+    "RDDT": "Growth",
+    "HIMS": "Growth",
+    "LULU": "Retail",
+    "COST": "Retail",
+    "OUST": "LIDAR/Hardware",
+    "PL": "Space",
+    "RDW": "Space",
+    "SMCI": "Hardware",
+    "NBIS": "AI Infra",
+    "ZETA": "AdTech",
+    "TEM": "AI/Health",
+    "BABA": "China",
+    "ABT": "Healthcare",
+    "UNH": "Healthcare",
+    "GS": "Financials",
+    "JPM": "Financials",
+    "EOSE": "Energy Storage",
+    "CRVW": "Industrials",
+    "XYZ": "Other",
 }
 
-# These will be populated from CSV or defaults
-WATCHLIST = []
-WATCHLIST_SECTORS = {}
+WATCHLIST: List[str] = []
+WATCHLIST_SECTORS: Dict[str, str] = {}
+
+SHORT_PERIOD = 8
+LONG_PERIOD = 21
+
+ET = pytz.timezone("US/Eastern")
 
 
-def load_watchlist(csv_path: str = None) -> Tuple[List[str], Dict[str, str]]:
-    """
-    Load watchlist from CSV file.
-    
-    CSV format:
-        ticker,sector,notes
-        AAPL,Tech,Apple - consumer tech
-        NVDA,Semis,NVIDIA - AI chips leader
-    
-    Args:
-        csv_path: Path to CSV file. If None, searches default locations.
-    
-    Returns:
-        Tuple of (watchlist, watchlist_sectors)
-    """
-    import os
-    
-    # Default search paths
+# =============================================================================
+# WATCHLIST LOADING
+# =============================================================================
+
+
+def load_watchlist_quiet(csv_path: str = None) -> Tuple[List[str], Dict[str, str]]:
+    """Load watchlist from CSV without printing. Falls back to defaults."""
     search_paths = [
         csv_path,
-        'watchlist.csv',
-        os.path.join(os.path.dirname(__file__), 'watchlist.csv'),
-        os.path.expanduser('~/watchlist.csv'),
-        '/app/watchlist.csv',  # Docker container path
+        "watchlist.csv",
+        os.path.join(os.path.dirname(__file__), "watchlist.csv"),
+        os.path.expanduser("~/watchlist.csv"),
+        "/app/watchlist.csv",
     ]
-    
+
     csv_file = None
     for path in search_paths:
         if path and os.path.exists(path):
             csv_file = path
             break
-    
+
     if csv_file is None:
-        print("  ℹ️  No watchlist.csv found, using default watchlist")
         return DEFAULT_WATCHLIST.copy(), DEFAULT_WATCHLIST_SECTORS.copy()
-    
-    print(f"  📄 Loading watchlist from: {csv_file}")
-    
-    watchlist = []
-    watchlist_sectors = {}
-    
+
     try:
         df = pd.read_csv(csv_file)
-        
-        # Normalize column names (handle different cases/formats)
         df.columns = df.columns.str.lower().str.strip()
-        
-        if 'ticker' not in df.columns:
-            print(f"  ⚠️  CSV missing 'ticker' column, using defaults")
+
+        if "ticker" not in df.columns:
             return DEFAULT_WATCHLIST.copy(), DEFAULT_WATCHLIST_SECTORS.copy()
-        
+
+        watchlist: List[str] = []
+        watchlist_sectors: Dict[str, str] = {}
+
         for _, row in df.iterrows():
-            ticker = str(row['ticker']).strip().upper()
-            if ticker and ticker != 'NAN':
+            ticker = str(row["ticker"]).strip().upper()
+            if ticker and ticker != "NAN":
                 watchlist.append(ticker)
-                
-                # Get sector if available
                 sector = "Unknown"
-                if 'sector' in df.columns and pd.notna(row.get('sector')):
-                    sector = str(row['sector']).strip()
-                
+                if "sector" in df.columns and pd.notna(row.get("sector")):
+                    sector = str(row.get("sector")).strip()
                 watchlist_sectors[ticker] = sector
-        
-        print(f"  ✓ Loaded {len(watchlist)} tickers from CSV")
+
+        if not watchlist:
+            return DEFAULT_WATCHLIST.copy(), DEFAULT_WATCHLIST_SECTORS.copy()
+
         return watchlist, watchlist_sectors
-        
-    except Exception as e:
-        print(f"  ⚠️  Error reading CSV: {e}, using defaults")
+
+    except Exception:
         return DEFAULT_WATCHLIST.copy(), DEFAULT_WATCHLIST_SECTORS.copy()
-
-
-# Sector mapping for watchlist names (for context in reports)
-# This is now a fallback - primary source is CSV
-
-# Lookback periods (matching your 8/21 EMAs)
-SHORT_PERIOD = 8
-LONG_PERIOD = 21
-
-# Timezone
-ET = pytz.timezone('US/Eastern')
 
 
 # =============================================================================
 # DATA FETCHING
 # =============================================================================
 
+
 def get_all_tickers() -> List[str]:
-    """Get all tickers we need to fetch."""
     tickers = [BENCHMARK]
     for etfs in SECTORS.values():
         tickers.extend(etfs)
@@ -187,115 +229,63 @@ def get_all_tickers() -> List[str]:
 
 
 def fetch_data(period: str = "3mo", interval: str = "1d") -> pd.DataFrame:
-    """
-    Fetch historical data for all tickers.
-    
-    Args:
-        period: How much history to fetch (1mo, 3mo, 6mo, 1y)
-        interval: Data interval (1d, 1h, etc.)
-    
-    Returns:
-        DataFrame with OHLCV data for all tickers
-    """
     tickers = get_all_tickers()
-    print(f"📡 Fetching data for {len(tickers)} tickers...")
-    
     data = yf.download(
         tickers,
         period=period,
         interval=interval,
-        group_by='ticker',
+        group_by="ticker",
         progress=False,
-        threads=True
+        threads=True,
     )
-    
     return data
-
-
-def get_current_prices(tickers: List[str]) -> Dict[str, dict]:
-    """Get current/latest price data for tickers."""
-    result = {}
-    
-    for ticker in tickers:
-        try:
-            stock = yf.Ticker(ticker)
-            info = stock.fast_info
-            hist = stock.history(period="2d")
-            
-            if len(hist) >= 1:
-                latest = hist.iloc[-1]
-                prev_close = hist.iloc[-2]['Close'] if len(hist) >= 2 else latest['Close']
-                
-                result[ticker] = {
-                    'price': latest['Close'],
-                    'open': latest['Open'],
-                    'high': latest['High'],
-                    'low': latest['Low'],
-                    'volume': latest['Volume'],
-                    'prev_close': prev_close,
-                    'change_pct': ((latest['Close'] - prev_close) / prev_close) * 100,
-                    'intraday_pct': ((latest['Close'] - latest['Open']) / latest['Open']) * 100
-                }
-        except Exception as e:
-            print(f"  ⚠️  Error fetching {ticker}: {e}")
-            
-    return result
 
 
 # =============================================================================
 # CALCULATIONS
 # =============================================================================
 
+
 def calculate_roc(prices: pd.Series, period: int) -> float:
-    """Calculate Rate of Change over N periods."""
     if len(prices) < period + 1:
         return np.nan
-    
     current = prices.iloc[-1]
     past = prices.iloc[-(period + 1)]
-    
     return ((current - past) / past) * 100
 
 
 def calculate_ema(prices: pd.Series, period: int) -> pd.Series:
-    """Calculate Exponential Moving Average."""
     return prices.ewm(span=period, adjust=False).mean()
 
 
+def calculate_relative_strength(ticker_change: float, benchmark_change: float) -> float:
+    return ticker_change - benchmark_change
+
+
+def calculate_volume_weight(current_volume: float, avg_volume: float) -> float:
+    if avg_volume == 0:
+        return 1.0
+    return current_volume / avg_volume
+
+
 def calculate_rsi(prices: pd.Series, period: int = 14) -> dict:
-    """
-    Calculate RSI (Relative Strength Index).
-    
-    RSI = 100 - (100 / (1 + RS))
-    RS = Average Gain / Average Loss over period
-    
-    Returns:
-        dict with RSI value and condition
-    """
     if len(prices) < period + 1:
-        return {'valid': False}
-    
-    # Calculate price changes
+        return {"valid": False}
+
     delta = prices.diff()
-    
-    # Separate gains and losses
     gains = delta.copy()
     losses = delta.copy()
     gains[gains < 0] = 0
     losses[losses > 0] = 0
     losses = abs(losses)
-    
-    # Calculate average gain/loss using EMA (Wilder's smoothing)
-    avg_gain = gains.ewm(alpha=1/period, min_periods=period, adjust=False).mean()
-    avg_loss = losses.ewm(alpha=1/period, min_periods=period, adjust=False).mean()
-    
-    # Calculate RS and RSI
+
+    avg_gain = gains.ewm(alpha=1 / period, min_periods=period, adjust=False).mean()
+    avg_loss = losses.ewm(alpha=1 / period, min_periods=period, adjust=False).mean()
+
     rs = avg_gain / avg_loss
     rsi = 100 - (100 / (1 + rs))
-    
-    current_rsi = rsi.iloc[-1]
-    
-    # Determine condition
+
+    current_rsi = float(rsi.iloc[-1])
     if current_rsi >= 70:
         condition = "OVERBOUGHT"
         emoji = "🔴"
@@ -304,52 +294,41 @@ def calculate_rsi(prices: pd.Series, period: int = 14) -> dict:
         emoji = "🟢"
     elif current_rsi <= 30:
         condition = "OVERSOLD"
-        emoji = "🟢"  # Oversold can be bullish for entry
+        emoji = "🟢"
     elif current_rsi <= 40:
         condition = "BEARISH"
         emoji = "🔴"
     else:
         condition = "NEUTRAL"
         emoji = "⚪"
-    
-    # RSI trend (is it rising or falling?)
-    rsi_5_ago = rsi.iloc[-5] if len(rsi) >= 5 else current_rsi
+
+    rsi_5_ago = float(rsi.iloc[-5]) if len(rsi) >= 5 else current_rsi
     rsi_trend = current_rsi - rsi_5_ago
-    
+
     return {
-        'valid': True,
-        'rsi': current_rsi,
-        'condition': condition,
-        'emoji': emoji,
-        'rsi_trend': rsi_trend,  # Positive = RSI rising
+        "valid": True,
+        "rsi": current_rsi,
+        "condition": condition,
+        "emoji": emoji,
+        "rsi_trend": rsi_trend,
     }
 
 
 def get_ema_structure(prices: pd.Series) -> dict:
-    """
-    Analyze EMA structure for a price series.
-    
-    Returns:
-        dict with EMA values and structure analysis
-    """
     if len(prices) < LONG_PERIOD + 5:
-        return {'valid': False}
-    
+        return {"valid": False}
+
     ema_short = calculate_ema(prices, SHORT_PERIOD)
     ema_long = calculate_ema(prices, LONG_PERIOD)
-    
-    current_price = prices.iloc[-1]
-    current_ema_short = ema_short.iloc[-1]
-    current_ema_long = ema_long.iloc[-1]
-    
-    # Price position relative to EMAs
+
+    current_price = float(prices.iloc[-1])
+    current_ema_short = float(ema_short.iloc[-1])
+    current_ema_long = float(ema_long.iloc[-1])
+
     price_vs_short = ((current_price - current_ema_short) / current_ema_short) * 100
     price_vs_long = ((current_price - current_ema_long) / current_ema_long) * 100
-    
-    # EMA spread (short vs long)
     ema_spread = ((current_ema_short - current_ema_long) / current_ema_long) * 100
-    
-    # Trend determination
+
     if current_price > current_ema_short > current_ema_long:
         trend = "BULLISH"
         trend_emoji = "🟢"
@@ -362,1065 +341,894 @@ def get_ema_structure(prices: pd.Series) -> dict:
     else:
         trend = "WEAKENING BEAR"
         trend_emoji = "🟠"
-    
+
     return {
-        'valid': True,
-        'ema_short': current_ema_short,
-        'ema_long': current_ema_long,
-        'price_vs_short_pct': price_vs_short,
-        'price_vs_long_pct': price_vs_long,
-        'ema_spread_pct': ema_spread,
-        'trend': trend,
-        'trend_emoji': trend_emoji
+        "valid": True,
+        "ema_short": current_ema_short,
+        "ema_long": current_ema_long,
+        "price_vs_short_pct": float(price_vs_short),
+        "price_vs_long_pct": float(price_vs_long),
+        "ema_spread_pct": float(ema_spread),
+        "trend": trend,
+        "trend_emoji": trend_emoji,
     }
 
 
-def calculate_relative_strength(ticker_change: float, benchmark_change: float) -> float:
-    """Calculate relative strength vs benchmark."""
-    return ticker_change - benchmark_change
-
-
-def calculate_volume_weight(current_volume: float, avg_volume: float) -> float:
-    """Calculate volume relative to average."""
-    if avg_volume == 0:
-        return 1.0
-    return current_volume / avg_volume
-
-
 def calculate_consolidation_score(prices: pd.Series, period: int = 10) -> dict:
-    """
-    Detect consolidation/squeeze conditions.
-    
-    Returns:
-        dict with consolidation metrics
-    """
-    if len(prices) < 50:  # Need enough history for percentile calc
-        return {'valid': False}
-    
+    if len(prices) < 50:
+        return {"valid": False}
+
     recent_prices = prices.tail(period)
-    
-    # Range compression (current range vs 20-day average range)
-    high_low_range = recent_prices.max() - recent_prices.min()
-    avg_range = prices.tail(20).std() * 2  # Approximate range using std
-    
+    high_low_range = float(recent_prices.max() - recent_prices.min())
+    avg_range = float(prices.tail(20).std() * 2)
+
     range_ratio = high_low_range / avg_range if avg_range > 0 else 1.0
-    
-    # Bollinger Band Width (squeeze detection)
-    # BB Width = (Upper Band - Lower Band) / Middle Band
-    # We calculate this as: (2 * std) / sma * 100
-    
-    def calc_bb_width(price_slice):
-        """Calculate BB width for a price slice."""
+
+    def calc_bb_width(price_slice: pd.Series):
         if len(price_slice) < 20:
             return None
-        sma = price_slice.mean()
-        std = price_slice.std()
+        sma = float(price_slice.mean())
+        std = float(price_slice.std())
         if sma > 0 and std > 0:
             return (std * 2) / sma * 100
         return None
-    
-    # Current BB width (last 20 days)
+
     current_bb_width = calc_bb_width(prices.tail(20))
-    
     if current_bb_width is None:
-        return {'valid': False}
-    
-    # Calculate historical BB widths (rolling)
-    # Go back through history and calculate BB width at each point
-    historical_bb_widths = []
+        return {"valid": False}
+
+    historical_bb_widths: List[float] = []
     for i in range(50, len(prices) + 1):
-        width = calc_bb_width(prices.iloc[i-20:i])
+        width = calc_bb_width(prices.iloc[i - 20 : i])
         if width is not None:
-            historical_bb_widths.append(width)
-    
-    # Calculate percentile: what % of historical readings are BELOW current width
-    # Lower percentile = tighter squeeze relative to history
+            historical_bb_widths.append(float(width))
+
     if historical_bb_widths:
         readings_below = sum(1 for w in historical_bb_widths if w < current_bb_width)
         bb_percentile = (readings_below / len(historical_bb_widths)) * 100
     else:
-        bb_percentile = 50  # Default to middle if no history
-    
-    # Consolidation score (lower = tighter consolidation)
-    is_squeezing = bb_percentile < 30  # BB width in bottom 30% of history
-    
+        bb_percentile = 50.0
+
+    is_squeezing = bb_percentile < 30
+
     return {
-        'valid': True,
-        'range_ratio': range_ratio,
-        'bb_width': current_bb_width,
-        'bb_percentile': bb_percentile,
-        'is_squeezing': is_squeezing,
+        "valid": True,
+        "range_ratio": float(range_ratio),
+        "bb_width": float(current_bb_width),
+        "bb_percentile": float(bb_percentile),
+        "is_squeezing": bool(is_squeezing),
     }
 
 
 def calculate_key_levels(prices: pd.Series, highs: pd.Series, lows: pd.Series) -> dict:
-    """
-    Calculate key price levels for charting.
-    """
     if len(prices) < 5:
-        return {'valid': False}
-    
-    current_price = prices.iloc[-1]
-    
-    # Prior week high/low (last 5 trading days)
-    week_high = highs.tail(5).max()
-    week_low = lows.tail(5).min()
-    
-    # 52-week high/low
-    year_high = highs.tail(252).max() if len(highs) >= 252 else highs.max()
-    year_low = lows.tail(252).min() if len(lows) >= 252 else lows.min()
-    
-    # Distance calculations
+        return {"valid": False}
+
+    current_price = float(prices.iloc[-1])
+    week_high = float(highs.tail(5).max())
+    week_low = float(lows.tail(5).min())
+
+    year_high = float(highs.tail(252).max()) if len(highs) >= 252 else float(highs.max())
+    year_low = float(lows.tail(252).min()) if len(lows) >= 252 else float(lows.min())
+
     dist_to_week_high = ((week_high - current_price) / current_price) * 100
     dist_to_week_low = ((current_price - week_low) / current_price) * 100
     dist_to_52w_high = ((year_high - current_price) / current_price) * 100
     dist_to_52w_low = ((current_price - year_low) / current_price) * 100
-    
-    # Recent swing low (potential stop level) - lowest low in last 10 days
-    swing_low = lows.tail(10).min()
+
+    swing_low = float(lows.tail(10).min())
     stop_distance = ((current_price - swing_low) / current_price) * 100
-    
+
     return {
-        'valid': True,
-        'price': current_price,
-        'week_high': week_high,
-        'week_low': week_low,
-        'year_high': year_high,
-        'year_low': year_low,
-        'dist_to_week_high': dist_to_week_high,
-        'dist_to_week_low': dist_to_week_low,
-        'dist_to_52w_high': dist_to_52w_high,
-        'dist_to_52w_low': dist_to_52w_low,
-        'swing_low': swing_low,
-        'stop_distance': stop_distance,
+        "valid": True,
+        "price": current_price,
+        "week_high": week_high,
+        "week_low": week_low,
+        "year_high": year_high,
+        "year_low": year_low,
+        "dist_to_week_high": float(dist_to_week_high),
+        "dist_to_week_low": float(dist_to_week_low),
+        "dist_to_52w_high": float(dist_to_52w_high),
+        "dist_to_52w_low": float(dist_to_52w_low),
+        "swing_low": swing_low,
+        "stop_distance": float(stop_distance),
     }
-
-
-def analyze_individual_stock(ticker: str, data: pd.DataFrame, benchmark_prices: pd.Series) -> dict:
-    """
-    Full analysis for an individual stock.
-    """
-    try:
-        # Handle DataFrame structure
-        if isinstance(data.columns, pd.MultiIndex):
-            if ticker not in data.columns.get_level_values(0):
-                return {'valid': False, 'ticker': ticker, 'error': 'No data'}
-            prices = data[ticker]['Close'].dropna()
-            volume = data[ticker]['Volume'].dropna()
-            highs = data[ticker]['High'].dropna()
-            lows = data[ticker]['Low'].dropna()
-        else:
-            prices = data['Close'].dropna()
-            volume = data['Volume'].dropna()
-            highs = data['High'].dropna()
-            lows = data['Low'].dropna()
-        
-        if len(prices) < LONG_PERIOD + 10:
-            return {'valid': False, 'ticker': ticker, 'error': 'Insufficient data'}
-        
-        # Basic metrics
-        current_price = prices.iloc[-1]
-        
-        # ROC
-        roc_short = calculate_roc(prices, SHORT_PERIOD)
-        roc_long = calculate_roc(prices, LONG_PERIOD)
-        
-        # EMA structure
-        ema_data = get_ema_structure(prices)
-        
-        # Relative strength vs SPY
-        spy_roc_short = calculate_roc(benchmark_prices, SHORT_PERIOD)
-        spy_roc_long = calculate_roc(benchmark_prices, LONG_PERIOD)
-        rs_short = calculate_relative_strength(roc_short, spy_roc_short)
-        rs_long = calculate_relative_strength(roc_long, spy_roc_long)
-        
-        # RS divergence detection
-        # Positive divergence: RS improving while price flat/down
-        # Negative divergence: RS weakening while price flat/up
-        rs_trend = rs_short - rs_long  # Positive = RS accelerating
-        price_trend = roc_short - roc_long  # Positive = price accelerating
-        
-        divergence = None
-        if rs_trend > 1.5 and price_trend < 0:
-            divergence = "BULLISH"  # RS improving, price lagging - accumulation
-        elif rs_trend < -1.5 and price_trend > 0:
-            divergence = "BEARISH"  # RS weakening, price holding - distribution
-        
-        # Volume
-        avg_volume = volume.tail(20).mean()
-        current_volume = volume.iloc[-1]
-        volume_ratio = calculate_volume_weight(current_volume, avg_volume)
-        
-        # Today's change
-        today_change = ((prices.iloc[-1] - prices.iloc[-2]) / prices.iloc[-2]) * 100 if len(prices) >= 2 else 0
-        
-        # Weekly change
-        week_change = ((prices.iloc[-1] - prices.iloc[-5]) / prices.iloc[-5]) * 100 if len(prices) >= 5 else 0
-        
-        # Consolidation
-        consolidation = calculate_consolidation_score(prices)
-        
-        # RSI
-        rsi_data = calculate_rsi(prices, period=14)
-        
-        # Key levels
-        levels = calculate_key_levels(prices, highs, lows)
-        
-        # Sector
-        sector = WATCHLIST_SECTORS.get(ticker, "Unknown")
-        
-        # Setup score (for ranking)
-        # Higher = better setup for your style (RS divergence + consolidation + good RSI)
-        setup_score = 0
-        if divergence == "BULLISH":
-            setup_score += 30
-        if consolidation.get('is_squeezing'):
-            setup_score += 25
-        if rs_short > 0:
-            setup_score += min(rs_short * 5, 20)  # Cap at 20 points
-        if ema_data.get('trend') in ['BULLISH', 'WEAKENING BULL']:
-            setup_score += 15
-        if volume_ratio > 1.2:
-            setup_score += 10
-        # RSI bonus: oversold with positive RS = great entry
-        if rsi_data.get('valid'):
-            if rsi_data['rsi'] <= 35 and rs_short > 0:
-                setup_score += 20  # Oversold but RS strong = accumulation
-            elif rsi_data['rsi'] >= 70:
-                setup_score -= 10  # Overbought = caution
-        
-        return {
-            'valid': True,
-            'ticker': ticker,
-            'sector': sector,
-            'price': current_price,
-            'today_pct': today_change,
-            'week_pct': week_change,
-            'roc_8': roc_short,
-            'roc_21': roc_long,
-            'rs_8': rs_short,
-            'rs_21': rs_long,
-            'rs_trend': rs_trend,
-            'divergence': divergence,
-            'ema_structure': ema_data,
-            'volume_ratio': volume_ratio,
-            'consolidation': consolidation,
-            'rsi': rsi_data,
-            'levels': levels,
-            'setup_score': setup_score,
-        }
-        
-    except Exception as e:
-        return {'valid': False, 'ticker': ticker, 'error': str(e)}
 
 
 # =============================================================================
 # ANALYSIS
 # =============================================================================
 
-def analyze_sector(sector_name: str, data: pd.DataFrame, benchmark_data: pd.Series) -> dict:
-    """
-    Comprehensive analysis for a sector.
-    
-    Args:
-        sector_name: Name of the sector
-        data: Full historical data DataFrame
-        benchmark_data: SPY close prices for comparison
-    
-    Returns:
-        dict with all sector metrics
-    """
+
+def analyze_sector(sector_name: str, data: pd.DataFrame, benchmark_prices: pd.Series) -> dict:
     primary_etf = PRIMARY_ETFS[sector_name]
-    
     try:
-        # Handle both multi-ticker and single-ticker DataFrame structures
         if isinstance(data.columns, pd.MultiIndex):
-            prices = data[primary_etf]['Close'].dropna()
-            volume = data[primary_etf]['Volume'].dropna()
+            prices = data[primary_etf]["Close"].dropna()
+            volume = data[primary_etf]["Volume"].dropna()
         else:
-            prices = data['Close'].dropna()
-            volume = data['Volume'].dropna()
-        
+            prices = data["Close"].dropna()
+            volume = data["Volume"].dropna()
+
         if len(prices) < LONG_PERIOD + 5:
-            return {'valid': False, 'sector': sector_name, 'etf': primary_etf}
-        
-        # Rate of Change
+            return {"valid": False, "sector": sector_name, "etf": primary_etf}
+
         roc_short = calculate_roc(prices, SHORT_PERIOD)
         roc_long = calculate_roc(prices, LONG_PERIOD)
-        
-        # EMA Structure
+
         ema_data = get_ema_structure(prices)
-        
-        # Relative Strength vs SPY
-        spy_roc_short = calculate_roc(benchmark_data, SHORT_PERIOD)
-        spy_roc_long = calculate_roc(benchmark_data, LONG_PERIOD)
-        
+
+        spy_roc_short = calculate_roc(benchmark_prices, SHORT_PERIOD)
+        spy_roc_long = calculate_roc(benchmark_prices, LONG_PERIOD)
+
         rs_short = calculate_relative_strength(roc_short, spy_roc_short)
         rs_long = calculate_relative_strength(roc_long, spy_roc_long)
-        
-        # Volume analysis
-        avg_volume = volume.tail(20).mean()
-        current_volume = volume.iloc[-1]
+
+        avg_volume = float(volume.tail(20).mean())
+        current_volume = float(volume.iloc[-1])
         volume_ratio = calculate_volume_weight(current_volume, avg_volume)
-        
-        # Today's performance
-        if len(prices) >= 2:
-            today_change = ((prices.iloc[-1] - prices.iloc[-2]) / prices.iloc[-2]) * 100
-        else:
-            today_change = 0
-        
-        # Volume-weighted performance (conviction score)
-        conviction = today_change * min(volume_ratio, 3.0)  # Cap at 3x to avoid outliers
-        
+
+        today_change = (
+            ((prices.iloc[-1] - prices.iloc[-2]) / prices.iloc[-2]) * 100
+            if len(prices) >= 2
+            else 0
+        )
+
+        conviction = float(today_change) * min(float(volume_ratio), 3.0)
+
         return {
-            'valid': True,
-            'sector': sector_name,
-            'etf': primary_etf,
-            'price': prices.iloc[-1],
-            'today_pct': today_change,
-            'roc_8': roc_short,
-            'roc_21': roc_long,
-            'rs_8': rs_short,
-            'rs_21': rs_long,
-            'ema_structure': ema_data,
-            'volume_ratio': volume_ratio,
-            'conviction': conviction,
+            "valid": True,
+            "sector": sector_name,
+            "etf": primary_etf,
+            "price": float(prices.iloc[-1]),
+            "today_pct": float(today_change),
+            "roc_8": float(roc_short),
+            "roc_21": float(roc_long),
+            "rs_8": float(rs_short),
+            "rs_21": float(rs_long),
+            "ema_structure": ema_data,
+            "volume_ratio": float(volume_ratio),
+            "conviction": float(conviction),
         }
-        
     except Exception as e:
-        print(f"  ⚠️  Error analyzing {sector_name}: {e}")
-        return {'valid': False, 'sector': sector_name, 'etf': primary_etf, 'error': str(e)}
+        return {"valid": False, "sector": sector_name, "etf": primary_etf, "error": str(e)}
 
 
-def rank_sectors(analyses: List[dict], metric: str = 'rs_8') -> List[dict]:
-    """Rank sectors by a given metric."""
-    valid = [a for a in analyses if a.get('valid', False)]
+def analyze_individual_stock(ticker: str, data: pd.DataFrame, benchmark_prices: pd.Series) -> dict:
+    try:
+        if isinstance(data.columns, pd.MultiIndex):
+            if ticker not in data.columns.get_level_values(0):
+                return {"valid": False, "ticker": ticker, "error": "No data"}
+            prices = data[ticker]["Close"].dropna()
+            volume = data[ticker]["Volume"].dropna()
+            highs = data[ticker]["High"].dropna()
+            lows = data[ticker]["Low"].dropna()
+        else:
+            prices = data["Close"].dropna()
+            volume = data["Volume"].dropna()
+            highs = data["High"].dropna()
+            lows = data["Low"].dropna()
+
+        if len(prices) < LONG_PERIOD + 10:
+            return {"valid": False, "ticker": ticker, "error": "Insufficient data"}
+
+        current_price = float(prices.iloc[-1])
+
+        roc_short = calculate_roc(prices, SHORT_PERIOD)
+        roc_long = calculate_roc(prices, LONG_PERIOD)
+
+        ema_data = get_ema_structure(prices)
+
+        spy_roc_short = calculate_roc(benchmark_prices, SHORT_PERIOD)
+        spy_roc_long = calculate_roc(benchmark_prices, LONG_PERIOD)
+
+        rs_short = calculate_relative_strength(roc_short, spy_roc_short)
+        rs_long = calculate_relative_strength(roc_long, spy_roc_long)
+
+        rs_trend = float(rs_short - rs_long)
+        price_trend = float(roc_short - roc_long)
+
+        divergence = None
+        if rs_trend > 1.5 and price_trend < 0:
+            divergence = "BULLISH"
+        elif rs_trend < -1.5 and price_trend > 0:
+            divergence = "BEARISH"
+
+        avg_volume = float(volume.tail(20).mean())
+        current_volume = float(volume.iloc[-1])
+        volume_ratio = float(calculate_volume_weight(current_volume, avg_volume))
+
+        today_change = (
+            ((prices.iloc[-1] - prices.iloc[-2]) / prices.iloc[-2]) * 100
+            if len(prices) >= 2
+            else 0
+        )
+        week_change = (
+            ((prices.iloc[-1] - prices.iloc[-5]) / prices.iloc[-5]) * 100
+            if len(prices) >= 5
+            else 0
+        )
+
+        consolidation = calculate_consolidation_score(prices)
+        rsi_data = calculate_rsi(prices, period=14)
+        levels = calculate_key_levels(prices, highs, lows)
+
+        sector = WATCHLIST_SECTORS.get(ticker, "Unknown")
+
+        # Setup score (your edge)
+        setup_score = 0.0
+        if divergence == "BULLISH":
+            setup_score += 30
+        if consolidation.get("is_squeezing"):
+            setup_score += 25
+        if rs_short > 0:
+            setup_score += min(rs_short * 5, 20)
+        if ema_data.get("trend") in ["BULLISH", "WEAKENING BULL"]:
+            setup_score += 15
+        if volume_ratio > 1.2:
+            setup_score += 10
+        if rsi_data.get("valid"):
+            if rsi_data["rsi"] <= 35 and rs_short > 0:
+                setup_score += 20
+            elif rsi_data["rsi"] >= 70:
+                setup_score -= 10
+
+        return {
+            "valid": True,
+            "ticker": ticker,
+            "sector": sector,
+            "price": current_price,
+            "today_pct": float(today_change),
+            "week_pct": float(week_change),
+            "roc_8": float(roc_short),
+            "roc_21": float(roc_long),
+            "rs_8": float(rs_short),
+            "rs_21": float(rs_long),
+            "rs_trend": float(rs_trend),
+            "divergence": divergence,
+            "ema_structure": ema_data,
+            "volume_ratio": float(volume_ratio),
+            "consolidation": consolidation,
+            "rsi": rsi_data,
+            "levels": levels,
+            "setup_score": float(setup_score),
+        }
+
+    except Exception as e:
+        return {"valid": False, "ticker": ticker, "error": str(e)}
+
+
+def rank_sectors(analyses: List[dict], metric: str = "rs_8") -> List[dict]:
+    valid = [a for a in analyses if a.get("valid", False)]
     return sorted(valid, key=lambda x: x.get(metric, 0), reverse=True)
 
 
 # =============================================================================
-# REPORTING
+# OUTPUT HELPERS (Simplified)
 # =============================================================================
 
-def format_pct(value: float, width: int = 6) -> str:
-    """Format percentage with color indicator."""
-    if pd.isna(value):
-        return "  N/A "
-    
-    sign = "+" if value >= 0 else ""
-    return f"{sign}{value:>{width}.2f}%"
+
+def fmt_pct(x: float) -> str:
+    if x is None or pd.isna(x):
+        return "N/A"
+    sign = "+" if x >= 0 else ""
+    return f"{sign}{x:.2f}%"
 
 
-def format_trend_bar(value: float, max_val: float = 10) -> str:
-    """Create a simple ASCII bar for the value."""
-    if pd.isna(value):
-        return ""
-    
-    normalized = min(abs(value) / max_val, 1.0)
-    bar_len = int(normalized * 10)
-    
-    if value >= 0:
-        return "█" * bar_len + "░" * (10 - bar_len)
+def fmt_float(x: float, digits: int = 2) -> str:
+    if x is None or pd.isna(x):
+        return "N/A"
+    return f"{x:.{digits}f}"
+
+
+def now_et() -> datetime:
+    return datetime.now(ET)
+
+
+def determine_report_type(force_weekend: bool = False) -> str:
+    n = now_et()
+    if force_weekend or n.weekday() >= 5:
+        return "WEEKEND"
+    if n.hour < 12:
+        return "MORNING"
+    if n.hour < 14:
+        return "MIDDAY"
+    return "CLOSE"
+
+
+def market_regime_label(sector_analyses: List[dict]) -> str:
+    """Simple risk-on/off heuristic using sector RS vs defensives."""
+    ranked = rank_sectors(sector_analyses, "rs_8")
+    if not ranked:
+        return "MIXED"
+
+    defensive = {"Utilities", "Staples", "Healthcare"}
+    risk_on = {"Tech", "Consumer Disc", "Financials"}
+
+    def_rs = np.mean([a["rs_8"] for a in ranked if a["sector"] in defensive]) if any(
+        a["sector"] in defensive for a in ranked
+    ) else 0.0
+    risk_rs = np.mean([a["rs_8"] for a in ranked if a["sector"] in risk_on]) if any(
+        a["sector"] in risk_on for a in ranked
+    ) else 0.0
+
+    if risk_rs > def_rs + 1:
+        return "RISK-ON"
+    if def_rs > risk_rs + 1:
+        return "RISK-OFF"
+    return "MIXED"
+
+
+def build_flags(stock: dict) -> str:
+    flags: List[str] = []
+    consol = stock.get("consolidation", {})
+    rsi = stock.get("rsi", {})
+    ema = stock.get("ema_structure", {})
+
+    if consol.get("is_squeezing"):
+        flags.append("🔸Squeeze")
+
+    div = stock.get("divergence")
+    if div == "BULLISH":
+        flags.append("⚡Accum")
+    elif div == "BEARISH":
+        flags.append("⚠️Distrib")
+
+    if rsi.get("valid"):
+        if rsi.get("rsi", 50) <= 35:
+            flags.append("🟢Oversold")
+        elif rsi.get("rsi", 50) >= 70:
+            flags.append("🔴Overbought")
+
+    # "Extended" heuristic: > +6% above 8EMA
+    if ema.get("valid") and ema.get("price_vs_short_pct", 0) > 6:
+        flags.append("⚠️Extended")
+
+    return " ".join(flags) if flags else "-"
+
+
+def breakout_trigger(stock: dict) -> str:
+    lv = stock.get("levels", {})
+    if lv.get("valid"):
+        return f"> {lv['week_high']:.2f}"
+    return "N/A"
+
+
+def pullback_trigger(stock: dict) -> str:
+    ema = stock.get("ema_structure", {})
+    lv = stock.get("levels", {})
+    parts: List[str] = []
+    if ema.get("valid"):
+        parts.append(f"reclaim 8EMA~{ema['ema_short']:.2f}")
+        parts.append(f"/ 21EMA~{ema['ema_long']:.2f}")
+    if lv.get("valid"):
+        parts.append(f"or hold {lv['week_low']:.2f}")
+    return " ".join(parts) if parts else "N/A"
+
+
+def stop_level(stock: dict) -> Tuple[str, str]:
+    lv = stock.get("levels", {})
+    if lv.get("valid"):
+        stop = f"< {lv['swing_low']:.2f}"
+        risk = f"{lv['stop_distance']:.1f}%"
+        return stop, risk
+    return "N/A", "N/A"
+
+
+def select_top_bottom_sectors(sector_analyses: List[dict], n: int = 3) -> Tuple[List[dict], List[dict]]:
+    ranked = rank_sectors(sector_analyses, "rs_8")
+    if len(ranked) <= n:
+        return ranked, []
+    return ranked[:n], ranked[-n:]
+
+
+def apply_sector_bonus(stock_analyses: List[dict], sector_analyses: List[dict]) -> None:
+    """Add a sector bonus + total_score per stock (simple, deterministic)."""
+    sector_rs = {a["sector"]: a.get("rs_8", 0.0) for a in sector_analyses if a.get("valid")}
+    for s in stock_analyses:
+        if not s.get("valid"):
+            continue
+        bonus = 0.0
+        stock_sector = str(s.get("sector", "Unknown")).strip()
+
+        # Exact match for core sectors, otherwise try a few common mappings
+        mapping = {
+            "Semis": "Tech",
+            "AI Infra": "Tech",
+            "Hardware": "Tech",
+            "Crypto/Mining": "Tech",
+            "EV/Growth": "Consumer Disc",
+            "Retail": "Consumer Disc",
+            "Growth": "Consumer Disc",
+            "Energy Storage": "Energy",
+            "China": "China",
+        }
+
+        if stock_sector in sector_rs:
+            bonus = max(0.0, sector_rs.get(stock_sector, 0.0) * 2)
+        else:
+            mapped = mapping.get(stock_sector)
+            if mapped and mapped in sector_rs:
+                bonus = max(0.0, sector_rs.get(mapped, 0.0) * 2)
+
+        s["sector_bonus"] = float(bonus)
+        s["total_score"] = float(s.get("setup_score", 0.0) + bonus)
+
+
+def top_setups(stock_analyses: List[dict], n: int = 5) -> List[dict]:
+    valid = [s for s in stock_analyses if s.get("valid")]
+    return sorted(valid, key=lambda x: x.get("total_score", x.get("setup_score", 0)), reverse=True)[:n]
+
+
+# =============================================================================
+# MARKDOWN (AI-READY REPORT)
+# =============================================================================
+
+
+def render_markdown_dashboard(
+    report_type: str,
+    benchmark: dict,
+    sector_analyses: List[dict],
+    stock_analyses: List[dict],
+    top_n: int = 5,
+) -> str:
+    ts = now_et().strftime("%Y-%m-%d %H:%M:%S %Z")
+    regime = market_regime_label(sector_analyses)
+    inflows, outflows = select_top_bottom_sectors(sector_analyses, 3)
+    picks = top_setups(stock_analyses, top_n)
+
+    spy_ema = benchmark.get("ema_structure", {})
+    spy_trend = f"{spy_ema.get('trend_emoji','')} {spy_ema.get('trend','N/A')}".strip()
+
+    def sector_rows(items: List[dict]) -> str:
+        lines = []
+        for i, s in enumerate(items, 1):
+            ema = s.get("ema_structure", {})
+            trend = f"{ema.get('trend_emoji','')} {ema.get('trend','N/A')}".strip()
+            lines.append(
+                f"| {i} | {s['sector']} | {s['etf']} | {fmt_pct(s.get('rs_8'))} | {trend} | {fmt_float(s.get('volume_ratio'),1)}x |"
+            )
+        return "\n".join(lines) if lines else "| - | - | - | - | - | - |"
+
+    stock_lines = []
+    for i, s in enumerate(picks, 1):
+        ema = s.get("ema_structure", {})
+        trend = f"{ema.get('trend_emoji','')} {ema.get('trend','N/A')}".strip()
+        flags = build_flags(s)
+        bo = breakout_trigger(s)
+        pb = pullback_trigger(s)
+        st, risk = stop_level(s)
+        lv = s.get("levels", {})
+        stop_num = lv.get("swing_low", None)
+        risk_num = lv.get("stop_distance", None)
+        stock_lines.append(
+            f"| {i} | {s['ticker']} | {s.get('sector','Unknown')} | {int(round(s.get('total_score', s.get('setup_score',0))))} | {fmt_pct(s.get('rs_8'))} | {trend} | {flags} | {bo} | {pb} | {st} | {risk} |"
+        )
+
+    stock_table = "\n".join(stock_lines) if stock_lines else "| - | - | - | - | - | - | - | - | - | - | - |"
+
+    md = f"""# Sector Rotation Dashboard — {ts} ({report_type})
+
+## 1) Market Regime
+- SPY Price: {benchmark.get('price', float('nan')):.2f}
+- SPY Trend (8/21): {spy_trend}
+- SPY ROC(8): {fmt_pct(benchmark.get('roc_8'))} | ROC(21): {fmt_pct(benchmark.get('roc_21'))}
+- Regime: {regime}
+
+## 2) Sector Flow (Top 3 / Bottom 3)
+
+### Inflows (leaders)
+| Rank | Sector | ETF | RS(8) | Trend | Vol |
+|---:|---|---|---:|---|---:|
+{sector_rows(inflows)}
+
+### Outflows (laggards)
+| Rank | Sector | ETF | RS(8) | Trend | Vol |
+|---:|---|---|---:|---|---:|
+{sector_rows(outflows)}
+
+## 3) Action List — Top {top_n} Setups (tradeable)
+> Each line includes triggers + stop so an AI can turn it into a plan.
+
+| # | Ticker | Sector | Score | RS(8) | Trend | Flags | Breakout Trigger | Pullback Trigger | Stop (swing low) | Risk% |
+|---:|---|---|---:|---:|---|---|---|---|---|---:|
+{stock_table}
+
+## 4) Notes (optional, keep short)
+- Rotation signals: (use sector RS diverging from trend in your AI prompt if needed)
+- Caution: names with 🔴Overbought or ⚠️Extended are usually “wait for pullback”
+
+## 5) Data Window / Assumptions
+- Lookback: 3mo daily
+- RS: ROC vs SPY (8/21)
+- Squeeze: BB width percentile < 30
+- Levels: week H/L (5d), swing low (10d)
+"""
+    return md
+
+
+def write_markdown_report(md_text: str, out_path: str = "rot_report.md") -> str:
+    path = Path(out_path)
+    path.write_text(md_text, encoding="utf-8")
+    return str(path)
+
+
+# =============================================================================
+# TERMINAL OUTPUT (DASHBOARD + FOCUS + TICKER)
+# =============================================================================
+
+
+def print_dashboard(report_type: str, benchmark: dict, sector_analyses: List[dict], stock_analyses: List[dict], top_n: int):
+    ts = now_et().strftime("%Y-%m-%d %H:%M:%S %Z")
+    regime = market_regime_label(sector_analyses)
+    inflows, outflows = select_top_bottom_sectors(sector_analyses, 3)
+    picks = top_setups(stock_analyses, top_n)
+
+    spy_ema = benchmark.get("ema_structure", {})
+    spy_trend = f"{spy_ema.get('trend_emoji','')} {spy_ema.get('trend','N/A')}".strip()
+
+    print()
+    print("╔" + "═" * 70 + "╗")
+    print(f"║  📊 ROTATION DASHBOARD — {report_type:<10} {ts:<42}║")
+    print("╚" + "═" * 70 + "╝")
+    print(f"SPY ${benchmark['price']:.2f} | Trend: {spy_trend} | ROC8 {fmt_pct(benchmark.get('roc_8'))} | Regime: {regime}")
+    print()
+
+    print("SECTOR FLOW (Top 3 / Bottom 3)")
+    def _sec_line(s):
+        ema = s.get("ema_structure", {})
+        trend = f"{ema.get('trend_emoji','')} {ema.get('trend','N/A')}".strip()
+        return f"- {s['sector']:<14} {s['etf']:<5} RS8 {fmt_pct(s.get('rs_8')):<8} Vol {fmt_float(s.get('volume_ratio'),1)}x  {trend}"
+
+    print(" Inflows:")
+    for s in inflows:
+        print(" ", _sec_line(s))
+    print(" Outflows:")
+    for s in outflows:
+        print(" ", _sec_line(s))
+    print()
+
+    print(f"ACTION LIST (Top {top_n}) — triggers + stops")
+    print(f"{'#':<2} {'Ticker':<7} {'Score':<5} {'RS8':<8} {'Trend':<16} {'Flags':<22} {'BO':<10} {'PB':<28} {'Stop':<10} {'Risk':<6}")
+    print("-" * 110)
+    for i, s in enumerate(picks, 1):
+        ema = s.get("ema_structure", {})
+        trend = f"{ema.get('trend_emoji','')} {ema.get('trend','N/A')}".strip()
+        flags = build_flags(s)
+        bo = breakout_trigger(s)
+        pb = pullback_trigger(s)[:27] + ("…" if len(pullback_trigger(s)) > 27 else "")
+        st, risk = stop_level(s)
+        print(
+            f"{i:<2} {s['ticker']:<7} {int(round(s.get('total_score', s.get('setup_score',0)))):<5} "
+            f"{fmt_pct(s.get('rs_8')):<8} {trend:<16} {flags:<22} {bo:<10} {pb:<28} {st:<10} {risk:<6}"
+        )
+    print()
+
+
+def print_focus(report_type: str, benchmark: dict, sector_analyses: List[dict], stock_analyses: List[dict], top_n: int):
+    ts = now_et().strftime("%Y-%m-%d %H:%M:%S %Z")
+    regime = market_regime_label(sector_analyses)
+    inflows, outflows = select_top_bottom_sectors(sector_analyses, 3)
+    picks = top_setups(stock_analyses, top_n)
+
+    spy_ema = benchmark.get("ema_structure", {})
+    spy_trend = f"{spy_ema.get('trend_emoji','')} {spy_ema.get('trend','N/A')}".strip()
+
+    print()
+    print("╔" + "═" * 70 + "╗")
+    print(f"║  🎯 WEEK/DAILY FOCUS LIST — {report_type:<10} {ts:<40}║")
+    print("╚" + "═" * 70 + "╝")
+    print(f"Market: SPY {spy_trend} | ROC8 {fmt_pct(benchmark.get('roc_8'))} | Regime: {regime}")
+    print()
+
+    print("Sector leaders:", ", ".join([f"{s['sector']}({fmt_pct(s['rs_8'])})" for s in inflows]) or "N/A")
+    print("Sector laggards:", ", ".join([f"{s['sector']}({fmt_pct(s['rs_8'])})" for s in outflows]) or "N/A")
+    print()
+
+    for s in picks:
+        lv = s.get("levels", {})
+        ema = s.get("ema_structure", {})
+        rsi = s.get("rsi", {})
+        consol = s.get("consolidation", {})
+
+        trend = f"{ema.get('trend_emoji','')} {ema.get('trend','N/A')}".strip()
+        flags = build_flags(s)
+
+        print(f"- {s['ticker']} @ ${s['price']:.2f} | Score {int(round(s.get('total_score', s.get('setup_score',0))))} | RS8 {fmt_pct(s.get('rs_8'))} | {trend}")
+        if rsi.get("valid"):
+            print(f"  RSI {rsi['rsi']:.0f} {rsi.get('emoji','')} | Vol {fmt_float(s.get('volume_ratio'),1)}x | BB%ile {fmt_float(consol.get('bb_percentile'),0)}")
+        print(f"  Flags: {flags}")
+        print(f"  Breakout: {breakout_trigger(s)} (week high)")
+        print(f"  Pullback: {pullback_trigger(s)}")
+        st, risk = stop_level(s)
+        print(f"  Stop: {st} | Risk: {risk}")
+        if lv.get("valid"):
+            print(f"  Week H/L: {lv['week_high']:.2f}/{lv['week_low']:.2f} | 52w High dist: {lv['dist_to_52w_high']:+.1f}%")
+        print()
+
+
+def run_single_ticker_analysis(ticker: str, data: pd.DataFrame, benchmark_prices: pd.Series, sector_analyses: List[dict]):
+    stock = analyze_individual_stock(ticker, data, benchmark_prices)
+    if not stock.get("valid"):
+        print(f"❌ Could not analyze {ticker}: {stock.get('error', 'unknown error')}")
+        return
+
+    # Find relevant sector (simple mapping)
+    stock_sector = str(stock.get("sector", "Unknown"))
+    relevant_sector = None
+    for s in sector_analyses:
+        if s.get("valid") and s.get("sector") and s["sector"].lower() in stock_sector.lower():
+            relevant_sector = s
+            break
+
+    spy_ema = get_ema_structure(benchmark_prices)
+    spy_roc = calculate_roc(benchmark_prices, SHORT_PERIOD)
+
+    ts = now_et().strftime("%Y-%m-%d %H:%M:%S %Z")
+    print()
+    print("╔" + "═" * 60 + "╗")
+    print(f"║  {ticker} — Quick Check  {ts:<35}║")
+    print("╚" + "═" * 60 + "╝")
+
+    print(f"Market: SPY {spy_ema.get('trend_emoji','')} {spy_ema.get('trend','N/A')} | ROC8 {fmt_pct(spy_roc)}")
+    if relevant_sector:
+        sec_ema = relevant_sector.get("ema_structure", {})
+        print(f"Sector: {relevant_sector['sector']} {sec_ema.get('trend_emoji','')} RS8 {fmt_pct(relevant_sector.get('rs_8'))}")
+
+    ema = stock.get("ema_structure", {})
+    rsi = stock.get("rsi", {})
+    lv = stock.get("levels", {})
+    flags = build_flags(stock)
+
+    trend = f"{ema.get('trend_emoji','')} {ema.get('trend','N/A')}".strip()
+    print()
+    print(f"{ticker} @ ${stock['price']:.2f}")
+    print(f"Score: {int(round(stock.get('total_score', stock.get('setup_score',0))))} | RS8 {fmt_pct(stock.get('rs_8'))} | Trend {trend} | Vol {fmt_float(stock.get('volume_ratio'),1)}x")
+    if rsi.get("valid"):
+        print(f"RSI: {rsi['rsi']:.0f} {rsi.get('emoji','')}")
+    print(f"Flags: {flags}")
+    print()
+
+    if lv.get("valid"):
+        print("Levels:")
+        print(f"  Week High: {lv['week_high']:.2f} | Week Low: {lv['week_low']:.2f}")
+        print(f"  Swing Low (stop): {lv['swing_low']:.2f} | Risk: {lv['stop_distance']:.1f}%")
+        print(f"  52w High: {lv['year_high']:.2f} (dist {lv['dist_to_52w_high']:+.1f}%)")
+        print()
+
+    score = stock.get("total_score", stock.get("setup_score", 0))
+    rs = stock.get("rs_8", 0)
+    rsi_val = rsi.get("rsi", 50) if rsi.get("valid") else 50
+    tr = ema.get("trend", "")
+
+    if score >= 50 and rs > 0 and "BULLISH" in tr:
+        verdict = "✅ LOOKS GOOD — RS positive, trend supportive"
+    elif score >= 50 and rs > 0:
+        verdict = "🟡 OKAY — RS positive but trend weakening"
+    elif rs > 2 and rsi_val >= 70:
+        verdict = "⚠️ EXTENDED — strong RS but overbought/extended"
+    elif rs < -2:
+        verdict = "❌ AVOID — weak RS, fighting the tape"
+    elif rsi_val <= 35 and rs > 0:
+        verdict = "⚡ WATCH — oversold + positive RS (accumulation)"
+    elif rsi_val <= 35 and rs < 0:
+        verdict = "🔻 FALLING KNIFE — oversold + weak RS"
     else:
-        return "░" * (10 - bar_len) + "█" * bar_len
+        verdict = "😐 NEUTRAL — no clear edge"
+
+    print(verdict)
+    print()
 
 
-def print_header(title: str):
-    """Print a section header."""
-    print("\n" + "=" * 70)
-    print(f" {title}")
-    print("=" * 70)
+# =============================================================================
+# AI PROMPTS (COPY/PASTE)
+# =============================================================================
 
 
-def print_watchlist_report(stock_analyses: List[dict], top_n: int = 5, sections: dict = None):
-    """Print the individual watchlist analysis."""
-    
-    if sections is None:
-        sections = {k: True for k in ['watchlist', 'top5', 'divergence', 'squeeze', 'levels']}
-    
-    valid_stocks = [s for s in stock_analyses if s.get('valid', False)]
-    
-    if not valid_stocks:
-        print("\n  ⚠️  No valid stock data available")
-        return
-    
-    # Top N by setup score (dynamic picks)
-    if sections.get('top5', True):
-        print_header(f"🎯 TOP {top_n} SETUPS THIS WEEK (Dynamic Picks)")
-        print("  Ranked by: RS divergence + consolidation + trend alignment\n")
-        
-        top_setups = sorted(valid_stocks, key=lambda x: x.get('setup_score', 0), reverse=True)[:top_n]
-        
-        for i, s in enumerate(top_setups, 1):
-            ema = s.get('ema_structure', {})
-            consol = s.get('consolidation', {})
-            levels = s.get('levels', {})
-            rsi = s.get('rsi', {})
-            
-            divergence_flag = f"⚡ {s['divergence']} DIV" if s.get('divergence') else ""
-            squeeze_flag = "🔸 SQUEEZE" if consol.get('is_squeezing') else ""
-            
-            # RSI flag
-            rsi_flag = ""
-            if rsi.get('valid'):
-                if rsi['rsi'] <= 35:
-                    rsi_flag = "🟢 OVERSOLD"
-                elif rsi['rsi'] >= 70:
-                    rsi_flag = "🔴 OVERBOUGHT"
-            
-            flags = " ".join(filter(None, [divergence_flag, squeeze_flag, rsi_flag]))
-            
-            # RSI display
-            rsi_str = f"RSI: {rsi['rsi']:.0f}" if rsi.get('valid') else ""
-            
-            print(f"  {i}. {s['ticker']:<6} | {s['sector']:<14} | Score: {s['setup_score']:<3.0f}")
-            print(f"     Price: ${s['price']:.2f} | Week: {format_pct(s['week_pct'])} | RS(8): {format_pct(s['rs_8'])} | {rsi_str}")
-            print(f"     Trend: {ema.get('trend_emoji', '❓')} {ema.get('trend', 'N/A'):<15} | Vol: {s['volume_ratio']:.1f}x")
-            if flags:
-                print(f"     Flags: {flags}")
-            if levels.get('valid'):
-                print(f"     Levels: Week H/L: ${levels['week_high']:.2f}/${levels['week_low']:.2f} | "
-                      f"Stop (swing low): ${levels['swing_low']:.2f} ({levels['stop_distance']:.1f}% risk)")
-            print()
-    
-    # RS Divergences (your edge)
-    if sections.get('divergence', True):
-        print_header("⚡ RS DIVERGENCE SIGNALS (Accumulation/Distribution)")
-        
-        bullish_div = [s for s in valid_stocks if s.get('divergence') == 'BULLISH']
-        bearish_div = [s for s in valid_stocks if s.get('divergence') == 'BEARISH']
-        
-        print("\n  🟢 BULLISH DIVERGENCE (RS improving, price consolidating):")
-        if bullish_div:
-            for s in sorted(bullish_div, key=lambda x: x['rs_trend'], reverse=True):
-                print(f"     • {s['ticker']:<6} ({s['sector']:<12}) | RS trend: +{s['rs_trend']:.1f}% | "
-                      f"Price: ${s['price']:.2f} | Week: {format_pct(s['week_pct'])}")
-        else:
-            print("     None detected in watchlist")
-        
-        print("\n  🔴 BEARISH DIVERGENCE (RS weakening, price holding):")
-        if bearish_div:
-            for s in sorted(bearish_div, key=lambda x: x['rs_trend']):
-                print(f"     • {s['ticker']:<6} ({s['sector']:<12}) | RS trend: {s['rs_trend']:.1f}% | "
-                      f"Price: ${s['price']:.2f} | Week: {format_pct(s['week_pct'])}")
-        else:
-            print("     None detected in watchlist")
-    
-    # Consolidation / Squeeze candidates
-    if sections.get('squeeze', True):
-        print_header("🔸 CONSOLIDATION / SQUEEZE CANDIDATES")
-        print("  (Tight range + low volatility = potential breakout setup)\n")
-        
-        squeezing = [s for s in valid_stocks if s.get('consolidation', {}).get('is_squeezing')]
-        squeezing = sorted(squeezing, key=lambda x: x.get('consolidation', {}).get('bb_percentile', 100))
-        
-        if squeezing:
-            print(f"  {'Ticker':<8} {'Sector':<14} {'BB %ile':<10} {'RS(8)':<10} {'Trend':<18}")
-            print("  " + "-" * 64)
-            for s in squeezing[:10]:
-                ema = s.get('ema_structure', {})
-                consol = s.get('consolidation', {})
-                print(f"  {s['ticker']:<8} {s['sector']:<14} {consol.get('bb_percentile', 0):>5.0f}%     "
-                      f"{format_pct(s['rs_8']):<10} {ema.get('trend_emoji', '')} {ema.get('trend', 'N/A'):<15}")
-        else:
-            print("  No squeeze setups detected")
-    
-    # RSI Extremes section
-    if sections.get('watchlist', True) or sections.get('top5', True):
-        print_header("📊 RSI EXTREMES (Oversold/Overbought)")
-        
-        # Oversold with strong RS = potential long entry
-        oversold = [s for s in valid_stocks if s.get('rsi', {}).get('valid') and s['rsi']['rsi'] <= 35]
-        oversold = sorted(oversold, key=lambda x: x['rsi']['rsi'])
-        
-        # Overbought = caution or short candidate
-        overbought = [s for s in valid_stocks if s.get('rsi', {}).get('valid') and s['rsi']['rsi'] >= 65]
-        overbought = sorted(overbought, key=lambda x: x['rsi']['rsi'], reverse=True)
-        
-        print("\n  🟢 OVERSOLD (RSI < 35) - Potential bounce candidates:")
-        if oversold:
-            print(f"    {'Ticker':<8} {'RSI':<8} {'RS(8)':<10} {'Trend':<15} {'Signal':<20}")
-            print("    " + "-" * 60)
-            for s in oversold[:10]:
-                rsi = s.get('rsi', {})
-                ema = s.get('ema_structure', {})
-                # Best signal: oversold + positive RS = accumulation
-                if s['rs_8'] > 0:
-                    signal = "⚡ ACCUMULATION"
-                else:
-                    signal = "Falling knife"
-                print(f"    {s['ticker']:<8} {rsi['rsi']:>5.1f}   {format_pct(s['rs_8']):<10} "
-                      f"{ema.get('trend_emoji', '')} {ema.get('trend', 'N/A')[:12]:<12} {signal:<20}")
-        else:
-            print("    None in watchlist")
-        
-        print("\n  🔴 OVERBOUGHT (RSI > 65) - Extended, use caution:")
-        if overbought:
-            print(f"    {'Ticker':<8} {'RSI':<8} {'RS(8)':<10} {'Trend':<15} {'Signal':<20}")
-            print("    " + "-" * 60)
-            for s in overbought[:10]:
-                rsi = s.get('rsi', {})
-                ema = s.get('ema_structure', {})
-                # Overbought + strong RS = momentum, but extended
-                if rsi['rsi'] >= 75:
-                    signal = "⚠️  Very extended"
-                elif s['rs_8'] > 3:
-                    signal = "Strong momentum"
-                else:
-                    signal = "Getting tired"
-                print(f"    {s['ticker']:<8} {rsi['rsi']:>5.1f}   {format_pct(s['rs_8']):<10} "
-                      f"{ema.get('trend_emoji', '')} {ema.get('trend', 'N/A')[:12]:<12} {signal:<20}")
-        else:
-            print("    None in watchlist")
-    
-    # Full watchlist table
-    if sections.get('watchlist', True):
-        print_header("📋 FULL WATCHLIST STATUS")
-        print(f"  {'Ticker':<7} {'Sector':<11} {'Price':<9} {'Week':<8} {'RS(8)':<8} {'RSI':<6} {'Trend':<12}")
-        print("  " + "-" * 70)
-        
-        # Sort by RS(8)
-        sorted_stocks = sorted(valid_stocks, key=lambda x: x.get('rs_8', 0), reverse=True)
-        
-        for s in sorted_stocks:
-            ema = s.get('ema_structure', {})
-            rsi = s.get('rsi', {})
-            trend_str = f"{ema.get('trend_emoji', '❓')} {ema.get('trend', 'N/A')[:9]}"
-            rsi_str = f"{rsi.get('rsi', 0):>4.0f}" if rsi.get('valid') else "  - "
-            # Add RSI emoji
-            rsi_emoji = rsi.get('emoji', '') if rsi.get('valid') else ''
-            print(f"  {s['ticker']:<7} {s['sector'][:10]:<11} ${s['price']:<8.2f} "
-                  f"{format_pct(s['week_pct']):<8} {format_pct(s['rs_8']):<8} "
-                  f"{rsi_str}{rsi_emoji} {trend_str:<12}")
-    
-    # Key levels summary for top setups
-    if sections.get('levels', True):
-        top_setups = sorted(valid_stocks, key=lambda x: x.get('setup_score', 0), reverse=True)[:top_n]
-        
-        print_header("📐 KEY LEVELS FOR TOP SETUPS")
-        print("  (Use for entries, stops, and targets)\n")
-        
-        for s in top_setups:
-            levels = s.get('levels', {})
-            if not levels.get('valid'):
-                continue
-            
-            print(f"  {s['ticker']} (${s['price']:.2f})")
-            print(f"     Week High:    ${levels['week_high']:.2f}  ({levels['dist_to_week_high']:+.1f}% away)")
-            print(f"     Week Low:     ${levels['week_low']:.2f}  ({levels['dist_to_week_low']:+.1f}% below)")
-            print(f"     52w High:     ${levels['year_high']:.2f}  ({levels['dist_to_52w_high']:+.1f}% away)")
-            print(f"     Swing Low:    ${levels['swing_low']:.2f}  (stop level, {levels['stop_distance']:.1f}% risk)")
-            print()
+def prompt_daily() -> str:
+    return """You are my trading assistant. My style: swing trade options (days to weeks), price action + levels, relative strength vs SPY, RS divergence (accumulation before breakout), squeeze breakouts, and I can’t watch screens all day.
+
+Task: Create my TRADE PLAN FOR TODAY using:
+1) the Sector Rotation report (markdown below)
+2) the News/Events bullets (below)
+
+Rules:
+- Focus only on the Top 5 candidates from the report unless news creates a clear higher-priority catalyst for a name already on my watchlist.
+- Prefer names in strong-inflow sectors; de-prioritize names in strong-outflow sectors unless they’re a short/put setup.
+- Generate BOTH entry styles for each candidate:
+  A) Breakout entry: trigger = break/close above Week High
+  B) Pullback entry: trigger = reclaim 8EMA / hold 21EMA or week low support
+- Each setup must include:
+  - Thesis in 1–2 sentences (tie to money flow + trend + news)
+  - Trigger, invalidation (stop), and first target
+  - Position sizing suggestion based on stop distance (risk-based: tight/medium/wide)
+  - Options structure suggestion (ATM/ITM calls, debit spread, put, put spread) with DTE guidance (14–45 DTE)
+  - What would make me cancel the trade today (news reversal, gap too large, sector flow flips, etc.)
+- Also include:
+  - Market regime summary (SPY trend/ROC + risk-on/off)
+  - “If-Then” plan for: (1) market gaps up, (2) market gaps down
+  - A short “Do Not Trade” list: conditions where I should do nothing
+
+Output format:
+1) Market context (5 bullets)
+2) Today’s top 3 priority trades (detailed)
+3) Remaining 2 candidates (short form)
+4) Alerts to set (levels)
+5) Do-not-trade checklist
+
+--- SECTOR ROTATION REPORT (PASTE BELOW) ---
+[PASTE rot_report.md CONTENT HERE]
+
+--- NEWS / EVENTS (PASTE BELOW) ---
+[PASTE TODAY’S NEWS BULLETS HERE]
+"""
 
 
-def print_report(analyses: List[dict], benchmark_analysis: dict, report_type: str = "DAILY", sections: dict = None):
-    """Print the full rotation report."""
-    
-    if sections is None:
-        sections = {k: True for k in ['benchmark', 'sectors', 'money_flow', 'conviction', 'ema_structure']}
-    
-    now = datetime.now(ET)
-    
-    print("\n")
-    print("╔" + "═" * 68 + "╗")
-    print(f"║  📊 SECTOR ROTATION REPORT - {report_type:<37} ║")
-    print(f"║  Generated: {now.strftime('%Y-%m-%d %H:%M:%S %Z'):<44} ║")
-    print("╚" + "═" * 68 + "╝")
-    
-    # Benchmark summary (always show if enabled)
-    if sections.get('benchmark', True):
-        print_header("📈 BENCHMARK (SPY)")
-        if benchmark_analysis.get('valid'):
-            ema = benchmark_analysis.get('ema_structure', {})
-            print(f"  Price: ${benchmark_analysis['price']:.2f}  |  "
-                  f"Today: {format_pct(benchmark_analysis['today_pct'])}  |  "
-                  f"Trend: {ema.get('trend_emoji', '❓')} {ema.get('trend', 'N/A')}")
-            print(f"  ROC(8): {format_pct(benchmark_analysis['roc_8'])}  |  "
-                  f"ROC(21): {format_pct(benchmark_analysis['roc_21'])}  |  "
-                  f"Volume: {benchmark_analysis['volume_ratio']:.1f}x avg")
-    
-    # Skip remaining sections if no sector data
-    if not analyses:
-        return
-    
-    # Sector Rankings by Relative Strength (8-day)
-    if sections.get('sectors', True):
-        print_header("🏆 SECTOR RANKING BY 8-DAY RELATIVE STRENGTH")
-        print(f"  {'Rank':<4} {'Sector':<14} {'ETF':<5} {'RS(8)':<9} {'RS(21)':<9} {'Today':<9} {'Trend':<15}")
-        print("  " + "-" * 66)
-        
-        ranked = rank_sectors(analyses, 'rs_8')
-        for i, a in enumerate(ranked, 1):
-            ema = a.get('ema_structure', {})
-            trend_str = f"{ema.get('trend_emoji', '❓')} {ema.get('trend', 'N/A')}"
-            print(f"  {i:<4} {a['sector']:<14} {a['etf']:<5} "
-                  f"{format_pct(a['rs_8']):<9} {format_pct(a['rs_21']):<9} "
-                  f"{format_pct(a['today_pct']):<9} {trend_str:<15}")
-    
-    ranked = rank_sectors(analyses, 'rs_8')
-    
-    # Money Flow Analysis
-    if sections.get('money_flow', True):
-        print_header("💰 MONEY FLOW ANALYSIS")
-        
-        # Strong inflows (positive RS + bullish structure)
-        strong_inflow = [a for a in ranked if a['rs_8'] > 1.0 and 
-                        a.get('ema_structure', {}).get('trend') in ['BULLISH', 'WEAKENING BULL']]
-        
-        # Strong outflows (negative RS + bearish structure)
-        strong_outflow = [a for a in ranked if a['rs_8'] < -1.0 and
-                         a.get('ema_structure', {}).get('trend') in ['BEARISH', 'WEAKENING BEAR']]
-        
-        # Rotation signals (RS diverging from trend)
-        rotation_signals = [a for a in ranked if 
-                           (a['rs_8'] > 1.0 and a.get('ema_structure', {}).get('trend') in ['BEARISH', 'WEAKENING BEAR']) or
-                           (a['rs_8'] < -1.0 and a.get('ema_structure', {}).get('trend') in ['BULLISH', 'WEAKENING BULL'])]
-        
-        print("\n  🟢 MONEY FLOWING IN (RS > +1%, Bullish structure):")
-        if strong_inflow:
-            for a in strong_inflow:
-                print(f"     • {a['sector']} ({a['etf']}): RS(8) = {format_pct(a['rs_8'])}, "
-                      f"Vol = {a['volume_ratio']:.1f}x")
-        else:
-            print("     None detected")
-        
-        print("\n  🔴 MONEY FLOWING OUT (RS < -1%, Bearish structure):")
-        if strong_outflow:
-            for a in strong_outflow:
-                print(f"     • {a['sector']} ({a['etf']}): RS(8) = {format_pct(a['rs_8'])}, "
-                      f"Vol = {a['volume_ratio']:.1f}x")
-        else:
-            print("     None detected")
-        
-        print("\n  ⚡ ROTATION SIGNALS (RS diverging from trend):")
-        if rotation_signals:
-            for a in rotation_signals:
-                ema = a.get('ema_structure', {})
-                direction = "turning bullish" if a['rs_8'] > 0 else "turning bearish"
-                print(f"     • {a['sector']} ({a['etf']}): {direction} - "
-                      f"RS(8) = {format_pct(a['rs_8'])} but trend = {ema.get('trend', 'N/A')}")
-        else:
-            print("     None detected")
-    
-    # Conviction Ranking (Volume-Weighted)
-    if sections.get('conviction', True):
-        print_header("📊 CONVICTION RANKING (Volume-Weighted Performance)")
-        conviction_ranked = sorted(ranked, key=lambda x: abs(x.get('conviction', 0)), reverse=True)[:5]
-        
-        for a in conviction_ranked:
-            direction = "↑" if a['conviction'] > 0 else "↓"
-            print(f"  {direction} {a['sector']:<14} | Today: {format_pct(a['today_pct'])} | "
-                  f"Volume: {a['volume_ratio']:.1f}x | Conviction: {a['conviction']:+.2f}")
-    
-    # EMA Structure Summary
-    if sections.get('ema_structure', True):
-        print_header("📐 EMA STRUCTURE SUMMARY (8/21 EMA)")
-        print(f"  {'Sector':<14} {'Price vs 8':<12} {'Price vs 21':<12} {'EMA Spread':<12} {'Structure':<15}")
-        print("  " + "-" * 66)
-        
-        for a in ranked:
-            ema = a.get('ema_structure', {})
-            if ema.get('valid'):
-                print(f"  {a['sector']:<14} "
-                      f"{format_pct(ema['price_vs_short_pct']):<12} "
-                      f"{format_pct(ema['price_vs_long_pct']):<12} "
-                      f"{format_pct(ema['ema_spread_pct']):<12} "
-                      f"{ema.get('trend_emoji', '')} {ema.get('trend', 'N/A'):<13}")
-    
-    # Key Takeaways (always show if we have sector data)
-    if any([sections.get('sectors'), sections.get('money_flow')]):
-        print_header("🎯 KEY TAKEAWAYS")
-        
-        strong_inflow = [a for a in ranked if a['rs_8'] > 1.0 and 
-                        a.get('ema_structure', {}).get('trend') in ['BULLISH', 'WEAKENING BULL']]
-        strong_outflow = [a for a in ranked if a['rs_8'] < -1.0 and
-                         a.get('ema_structure', {}).get('trend') in ['BEARISH', 'WEAKENING BEAR']]
-        rotation_signals = [a for a in ranked if 
-                           (a['rs_8'] > 1.0 and a.get('ema_structure', {}).get('trend') in ['BEARISH', 'WEAKENING BEAR']) or
-                           (a['rs_8'] < -1.0 and a.get('ema_structure', {}).get('trend') in ['BULLISH', 'WEAKENING BULL'])]
-        
-        if strong_inflow:
-            top_inflow = strong_inflow[0]
-            print(f"  • Strongest inflow: {top_inflow['sector']} - consider long setups in this sector")
-        
-        if strong_outflow:
-            top_outflow = strong_outflow[0]
-            print(f"  • Strongest outflow: {top_outflow['sector']} - be cautious with longs here")
-        
-        if rotation_signals:
-            print(f"  • {len(rotation_signals)} rotation signal(s) detected - watch for trend changes")
-        
-        # Defensive vs Risk-On
-        defensive = ['Utilities', 'Staples', 'Healthcare']
-        risk_on = ['Tech', 'Consumer Disc', 'Financials']
-        
-        defensive_rs = np.mean([a['rs_8'] for a in ranked if a['sector'] in defensive])
-        risk_on_rs = np.mean([a['rs_8'] for a in ranked if a['sector'] in risk_on])
-        
-        if risk_on_rs > defensive_rs + 1:
-            print(f"  • Risk-On environment: Growth sectors outperforming defensives by {risk_on_rs - defensive_rs:.1f}%")
-        elif defensive_rs > risk_on_rs + 1:
-            print(f"  • Risk-Off environment: Defensive sectors outperforming growth by {defensive_rs - risk_on_rs:.1f}%")
-        else:
-            print(f"  • Mixed environment: No clear risk-on/risk-off signal")
-    
-    print("\n" + "─" * 70)
-    print(f"  Report complete. Next scheduled run based on your cron configuration.")
-    print("─" * 70)
+def prompt_weekly() -> str:
+    return """You are my weekly trading planner. My style: swing trade options, RS vs SPY, divergence + squeeze, levels-based entries, and limited screen time.
+
+Task: Create my TRADE PLAN FOR THE WEEK using:
+1) the Sector Rotation report (markdown below)
+2) the Upcoming Week Catalyst list (below: earnings, macro events, known headlines)
+
+Rules:
+- Identify the market regime (risk-on/off/mixed) and the 2–3 sectors most likely to lead this week.
+- Produce a ranked Focus List of 5 tickers with:
+  - Setup type: Breakout / Pullback / Mean-reversion / Short
+  - Key levels: week high/low, swing low stop, major resistance, “line in the sand”
+  - Conditions required to take the trade (e.g., “sector must remain top-3 RS”, “SPY must stay above 21EMA”)
+  - Options structure guidance + DTE guidance (14–60 DTE depending on setup)
+  - A plan for what to do if it gaps through the trigger
+- Also include:
+  - A “Do Nothing Week” filter: conditions that make me stay in cash
+  - A watchlist maintenance list: names to drop/add based on sector flow + weak setups
+
+Output format:
+1) Weekly Market Thesis (bullets)
+2) Sector Flow Outlook (top 3 / bottom 3, with what to watch)
+3) Focus List (5 names, detailed plans)
+4) Alerts to set (levels across all 5)
+5) Risk Management rules for the week
+
+--- SECTOR ROTATION REPORT (PASTE BELOW) ---
+[PASTE rot_report.md CONTENT HERE]
+
+--- UPCOMING CATALYSTS (PASTE BELOW) ---
+[PASTE EARNINGS + MACRO CALENDAR + KNOWN HEADLINES HERE]
+"""
 
 
 # =============================================================================
 # MAIN
 # =============================================================================
 
-def run_analysis(output_json: bool = False, weekend_mode: bool = False, sections: dict = None, top_n: int = 5, watchlist_csv: str = None):
-    """Run the full sector rotation analysis."""
-    
+
+def run_analysis(
+    top_n: int = 5,
+    watchlist_csv: str = None,
+    force_weekend: bool = False,
+    output_json: bool = False,
+    md_path: str = None,
+    focus: bool = False,
+    ticker: str = None,
+):
     global WATCHLIST, WATCHLIST_SECTORS
-    
-    # Load watchlist from CSV
-    WATCHLIST, WATCHLIST_SECTORS = load_watchlist(watchlist_csv)
-    
-    # Default sections (all enabled)
-    if sections is None:
-        sections = {
-            'benchmark': True,
-            'sectors': True,
-            'money_flow': True,
-            'conviction': True,
-            'ema_structure': True,
-            'watchlist': True,
-            'top5': True,
-            'divergence': True,
-            'squeeze': True,
-            'levels': True,
-            'weekend_summary': weekend_mode,
-        }
-    
-    # Determine if we need sector data
-    need_sectors = any([
-        sections.get('sectors'),
-        sections.get('money_flow'),
-        sections.get('conviction'),
-        sections.get('ema_structure'),
-        sections.get('weekend_summary'),
-    ])
-    
-    # Determine if we need watchlist data
-    need_watchlist = any([
-        sections.get('watchlist'),
-        sections.get('top5'),
-        sections.get('divergence'),
-        sections.get('squeeze'),
-        sections.get('levels'),
-        sections.get('weekend_summary'),
-    ])
-    
-    # Fetch data
+    WATCHLIST, WATCHLIST_SECTORS = load_watchlist_quiet(watchlist_csv)
+
     data = fetch_data(period="3mo", interval="1d")
-    
-    # Get benchmark data
+
     if isinstance(data.columns, pd.MultiIndex):
-        benchmark_prices = data[BENCHMARK]['Close'].dropna()
-        benchmark_volume = data[BENCHMARK]['Volume'].dropna()
+        benchmark_prices = data[BENCHMARK]["Close"].dropna()
+        benchmark_volume = data[BENCHMARK]["Volume"].dropna()
     else:
-        # Single ticker case
-        benchmark_prices = data['Close'].dropna()
-        benchmark_volume = data['Volume'].dropna()
-    
-    # Analyze benchmark
-    benchmark_analysis = {
-        'valid': True,
-        'sector': 'Benchmark',
-        'etf': BENCHMARK,
-        'price': benchmark_prices.iloc[-1],
-        'today_pct': ((benchmark_prices.iloc[-1] - benchmark_prices.iloc[-2]) / benchmark_prices.iloc[-2]) * 100 if len(benchmark_prices) >= 2 else 0,
-        'roc_8': calculate_roc(benchmark_prices, SHORT_PERIOD),
-        'roc_21': calculate_roc(benchmark_prices, LONG_PERIOD),
-        'ema_structure': get_ema_structure(benchmark_prices),
-        'volume_ratio': benchmark_volume.iloc[-1] / benchmark_volume.tail(20).mean() if len(benchmark_volume) >= 20 else 1.0,
+        benchmark_prices = data["Close"].dropna()
+        benchmark_volume = data["Volume"].dropna()
+
+    benchmark = {
+        "valid": True,
+        "price": float(benchmark_prices.iloc[-1]),
+        "today_pct": float(((benchmark_prices.iloc[-1] - benchmark_prices.iloc[-2]) / benchmark_prices.iloc[-2]) * 100)
+        if len(benchmark_prices) >= 2
+        else 0.0,
+        "roc_8": float(calculate_roc(benchmark_prices, SHORT_PERIOD)),
+        "roc_21": float(calculate_roc(benchmark_prices, LONG_PERIOD)),
+        "ema_structure": get_ema_structure(benchmark_prices),
+        "volume_ratio": float(benchmark_volume.iloc[-1] / benchmark_volume.tail(20).mean())
+        if len(benchmark_volume) >= 20
+        else 1.0,
     }
-    
-    # Analyze sectors (if needed)
-    analyses = []
-    if need_sectors:
-        print("📊 Analyzing sectors...")
-        for sector_name in SECTORS.keys():
-            analysis = analyze_sector(sector_name, data, benchmark_prices)
-            analyses.append(analysis)
-            if analysis.get('valid'):
-                print(f"  ✓ {sector_name}")
-            else:
-                print(f"  ✗ {sector_name} (insufficient data)")
-    
-    # Analyze individual watchlist stocks (if needed)
-    stock_analyses = []
-    if need_watchlist:
-        print("\n📈 Analyzing watchlist stocks...")
-        for ticker in WATCHLIST:
-            stock_analysis = analyze_individual_stock(ticker, data, benchmark_prices)
-            stock_analyses.append(stock_analysis)
-            if stock_analysis.get('valid'):
-                print(f"  ✓ {ticker}")
-            else:
-                print(f"  ✗ {ticker} ({stock_analysis.get('error', 'unknown error')})")
-    
-    # Determine report type based on time and mode
-    now = datetime.now(ET)
-    hour = now.hour
-    weekday = now.weekday()  # 0=Monday, 6=Sunday
-    
-    if weekend_mode or weekday >= 5:  # Weekend
-        report_type = "WEEKEND PREP"
-        sections['weekend_summary'] = True
-    elif hour < 12:
-        report_type = "MORNING OPEN"
-    elif hour < 14:
-        report_type = "MIDDAY UPDATE"
-    else:
-        report_type = "MARKET CLOSE"
-    
-    # Output
+
+    sector_analyses: List[dict] = []
+    for sector_name in SECTORS.keys():
+        sector_analyses.append(analyze_sector(sector_name, data, benchmark_prices))
+
+    stock_analyses: List[dict] = []
+    if ticker:
+        # Ensure ticker is included in fetch list. If it wasn't, we still fetched full set; but
+        # if user ticker isn't in WATCHLIST and thus not in data, add best-effort analysis:
+        if isinstance(data.columns, pd.MultiIndex) and ticker not in data.columns.get_level_values(0):
+            # Fetch just this ticker + SPY quickly (fallback)
+            extra = yf.download([BENCHMARK, ticker], period="3mo", interval="1d", group_by="ticker", progress=False)
+            data = extra
+            benchmark_prices = data[BENCHMARK]["Close"].dropna() if isinstance(data.columns, pd.MultiIndex) else data["Close"].dropna()
+        run_single_ticker_analysis(ticker, data, benchmark_prices, sector_analyses)
+        return
+
+    for t in WATCHLIST:
+        stock_analyses.append(analyze_individual_stock(t, data, benchmark_prices))
+
+    apply_sector_bonus(stock_analyses, sector_analyses)
+
+    report_type = determine_report_type(force_weekend)
+
     if output_json:
-        output = {
-            'timestamp': now.isoformat(),
-            'report_type': report_type,
-            'benchmark': benchmark_analysis,
-            'sectors': analyses if need_sectors else [],
-            'watchlist': stock_analyses if need_watchlist else [],
+        payload = {
+            "timestamp": now_et().isoformat(),
+            "report_type": report_type,
+            "benchmark": benchmark,
+            "sectors": sector_analyses,
+            "watchlist": stock_analyses,
         }
-        print(json.dumps(output, indent=2, default=str))
-    else:
-        print_report(analyses, benchmark_analysis, report_type, sections)
-        
-        if need_watchlist:
-            print_watchlist_report(stock_analyses, top_n=top_n, sections=sections)
-        
-        # Weekend-specific summary
-        if sections.get('weekend_summary'):
-            print_weekend_summary(analyses, stock_analyses, benchmark_analysis)
+        print(json.dumps(payload, indent=2, default=str))
+        return
 
-
-def print_weekend_summary(sector_analyses: List[dict], stock_analyses: List[dict], benchmark: dict):
-    """Print weekend-specific prep summary."""
-    
-    print("\n")
-    print("╔" + "═" * 68 + "╗")
-    print("║  📅 WEEKEND PREP SUMMARY - WEEK AHEAD GAMEPLAN                     ║")
-    print("╚" + "═" * 68 + "╝")
-    
-    valid_sectors = [s for s in sector_analyses if s.get('valid')]
-    valid_stocks = [s for s in stock_analyses if s.get('valid')]
-    
-    # Market regime
-    print_header("🌍 MARKET REGIME")
-    
-    ema = benchmark.get('ema_structure', {})
-    print(f"  SPY: ${benchmark['price']:.2f} | {ema.get('trend_emoji', '')} {ema.get('trend', 'N/A')}")
-    print(f"  Weekly momentum (ROC-8): {format_pct(benchmark.get('roc_8', 0))}")
-    
-    # Sector leaders and laggards
-    ranked_sectors = sorted(valid_sectors, key=lambda x: x.get('rs_8', 0), reverse=True)
-    leaders = ranked_sectors[:3]
-    laggards = ranked_sectors[-3:]
-    
-    print("\n  Leading sectors:  ", end="")
-    print(", ".join([f"{s['sector']} ({format_pct(s['rs_8']).strip()})" for s in leaders]))
-    
-    print("  Lagging sectors:  ", end="")
-    print(", ".join([f"{s['sector']} ({format_pct(s['rs_8']).strip()})" for s in laggards]))
-    
-    # Week ahead focus list
-    print_header("🎯 WEEK AHEAD FOCUS LIST")
-    
-    # Best setups
-    top_setups = sorted(valid_stocks, key=lambda x: x.get('setup_score', 0), reverse=True)[:5]
-    
-    print("\n  PRIORITY WATCHLIST (highest setup scores):\n")
-    for s in top_setups:
-        levels = s.get('levels', {})
-        consol = s.get('consolidation', {})
-        
-        # Build action items
-        actions = []
-        if s.get('divergence') == 'BULLISH':
-            actions.append("accumulation signal")
-        if consol.get('is_squeezing'):
-            actions.append("squeeze forming")
-        if levels.get('valid') and levels.get('dist_to_week_high', 100) < 3:
-            actions.append(f"near week high (${levels['week_high']:.2f})")
-        
-        action_str = " | ".join(actions) if actions else "monitor for entry"
-        
-        print(f"  • {s['ticker']:<6} ${s['price']:.2f}")
-        print(f"    Why: {action_str}")
-        if levels.get('valid'):
-            print(f"    Entry trigger: Break above ${levels['week_high']:.2f}")
-            print(f"    Stop: ${levels['swing_low']:.2f} ({levels['stop_distance']:.1f}% risk)")
-        print()
-    
-    # Names to avoid
-    print("  ⚠️  CAUTION LIST (weak RS, bearish divergence, or lagging):\n")
-    
-    avoid_list = [s for s in valid_stocks if s.get('rs_8', 0) < -3 or s.get('divergence') == 'BEARISH']
-    avoid_list = sorted(avoid_list, key=lambda x: x.get('rs_8', 0))[:5]
-    
-    if avoid_list:
-        for s in avoid_list:
-            reason = "bearish divergence" if s.get('divergence') == 'BEARISH' else f"weak RS ({format_pct(s['rs_8']).strip()})"
-            print(f"  • {s['ticker']:<6} - {reason}")
+    # Terminal output
+    if focus:
+        print_focus(report_type, benchmark, sector_analyses, stock_analyses, top_n)
     else:
-        print("  None flagged - watchlist looks healthy")
-    
-    # Trading checklist
-    print_header("✅ PRE-MARKET CHECKLIST")
-    print("""
-  □ Review top 5 setups on your charts
-  □ Mark key levels (week H/L, swing lows)
-  □ Check earnings calendar for watchlist names
-  □ Note any overnight futures/news
-  □ Set alerts at breakout levels
-  □ Size positions based on stop distance
-    """)
-    
-    print("\n" + "─" * 70)
-    print("  Good luck this week! 🎯")
-    print("─" * 70 + "\n")
+        print_dashboard(report_type, benchmark, sector_analyses, stock_analyses, top_n)
+
+    # Markdown output (AI-ready)
+    if md_path:
+        md = render_markdown_dashboard(report_type, benchmark, sector_analyses, stock_analyses, top_n=top_n)
+        out = write_markdown_report(md, md_path)
+        print(f"📝 Wrote AI-ready report: {out}")
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Sector Rotation Tracker',
+        description="Sector Rotation Tracker (Simplified)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python sector_rotation.py                    # Full report (all sections)
-  python sector_rotation.py --weekend          # Force weekend prep mode
-  python sector_rotation.py --sectors-only     # Just sector analysis
-  python sector_rotation.py --watchlist-only   # Just watchlist analysis
-  python sector_rotation.py --top5 --levels    # Top 5 setups with key levels
-  python sector_rotation.py --divergence       # Just RS divergence signals
-  python sector_rotation.py --squeeze          # Just consolidation/squeeze candidates
-  python sector_rotation.py --json             # Full report as JSON
-  python sector_rotation.py --csv my_watchlist.csv  # Use custom watchlist
-        """
+  python rot.py                          # one-screen dashboard
+  python rot.py --focus                  # focus list for planning
+  python rot.py --md rot_report.md       # write AI-ready markdown report
+  python rot.py --ticker AAPL            # single ticker quick-check
+  python rot.py --weekend --focus        # weekend mode (same format)
+  python rot.py --print-prompt daily     # print daily AI prompt
+  python rot.py --print-prompt weekly    # print weekly AI prompt
+""",
     )
-    
-    # Output format
-    parser.add_argument('--json', action='store_true', 
-                        help='Output as JSON')
-    
-    # Mode flags
-    parser.add_argument('--weekend', action='store_true', 
-                        help='Force weekend prep mode (adds week ahead summary)')
-    
-    # Watchlist source
-    parser.add_argument('--csv', type=str, default=None,
-                        help='Path to watchlist CSV file (default: watchlist.csv)')
-    
-    # Section flags - sectors
-    parser.add_argument('--sectors-only', action='store_true',
-                        help='Only show sector rotation analysis (no watchlist)')
-    parser.add_argument('--sectors', action='store_true',
-                        help='Include sector rotation analysis')
-    parser.add_argument('--money-flow', action='store_true',
-                        help='Include money flow analysis')
-    parser.add_argument('--conviction', action='store_true',
-                        help='Include conviction ranking')
-    parser.add_argument('--ema-structure', action='store_true',
-                        help='Include EMA structure summary')
-    
-    # Section flags - watchlist
-    parser.add_argument('--watchlist-only', action='store_true',
-                        help='Only show watchlist analysis (no sectors)')
-    parser.add_argument('--watchlist', action='store_true',
-                        help='Include full watchlist status table')
-    parser.add_argument('--top5', action='store_true',
-                        help='Include top 5 setups')
-    parser.add_argument('--divergence', action='store_true',
-                        help='Include RS divergence signals')
-    parser.add_argument('--squeeze', action='store_true',
-                        help='Include consolidation/squeeze candidates')
-    parser.add_argument('--levels', action='store_true',
-                        help='Include key levels for top setups')
-    
-    # Customization
-    parser.add_argument('--top-n', type=int, default=5,
-                        help='Number of top setups to show (default: 5)')
-    
+
+    parser.add_argument("--csv", type=str, default=None, help="Path to watchlist CSV")
+    parser.add_argument("--top-n", type=int, default=5, help="Number of top setups (default: 5)")
+    parser.add_argument("--weekend", action="store_true", help="Force weekend mode labeling")
+    parser.add_argument("--json", action="store_true", help="Output JSON (raw data)")
+    parser.add_argument("--md", type=str, default=None, help="Write AI-ready markdown report to this path")
+    parser.add_argument("--focus", action="store_true", help="Print the focus list (planning view)")
+    parser.add_argument("--ticker", "-t", type=str, default=None, help="Single ticker quick-check (e.g., -t AAPL)")
+    parser.add_argument(
+        "--print-prompt",
+        choices=["daily", "weekly"],
+        default=None,
+        help="Print a copy/paste prompt to generate a trade plan from the markdown + news",
+    )
+
     args = parser.parse_args()
-    
-    # Determine which sections to show
-    sections = {
-        'benchmark': True,  # Always show benchmark
-        'sectors': False,
-        'money_flow': False,
-        'conviction': False,
-        'ema_structure': False,
-        'watchlist': False,
-        'top5': False,
-        'divergence': False,
-        'squeeze': False,
-        'levels': False,
-        'weekend_summary': False,
-    }
-    
-    # If no specific flags provided, show everything
-    specific_flags = [
-        args.sectors_only, args.watchlist_only,
-        args.sectors, args.money_flow, args.conviction, args.ema_structure,
-        args.watchlist, args.top5, args.divergence, args.squeeze, args.levels
-    ]
-    
-    if not any(specific_flags):
-        # Default: show everything
-        for key in sections:
-            sections[key] = True
-    else:
-        # Specific flags provided
-        if args.sectors_only:
-            sections['sectors'] = True
-            sections['money_flow'] = True
-            sections['conviction'] = True
-            sections['ema_structure'] = True
-        
-        if args.watchlist_only:
-            sections['watchlist'] = True
-            sections['top5'] = True
-            sections['divergence'] = True
-            sections['squeeze'] = True
-            sections['levels'] = True
-        
-        # Individual flags
-        if args.sectors:
-            sections['sectors'] = True
-        if args.money_flow:
-            sections['money_flow'] = True
-        if args.conviction:
-            sections['conviction'] = True
-        if args.ema_structure:
-            sections['ema_structure'] = True
-        if args.watchlist:
-            sections['watchlist'] = True
-        if args.top5:
-            sections['top5'] = True
-        if args.divergence:
-            sections['divergence'] = True
-        if args.squeeze:
-            sections['squeeze'] = True
-        if args.levels:
-            sections['levels'] = True
-    
-    # Weekend mode
-    if args.weekend:
-        sections['weekend_summary'] = True
-    
+
+    if args.print_prompt:
+        print(prompt_daily() if args.print_prompt == "daily" else prompt_weekly())
+        return
+
     run_analysis(
-        output_json=args.json, 
-        weekend_mode=args.weekend,
-        sections=sections,
         top_n=args.top_n,
-        watchlist_csv=args.csv
+        watchlist_csv=args.csv,
+        force_weekend=args.weekend,
+        output_json=args.json,
+        md_path=args.md,
+        focus=args.focus,
+        ticker=args.ticker.upper() if args.ticker else None,
     )
 
 
