@@ -1,0 +1,60 @@
+ticker,sector,notes
+IONQ,Quantum,Quantum computing leader
+RGTI,Quantum,Rigetti quantum computing
+GOOGL,Tech,Alphabet - search/cloud/AI
+MSFT,Tech,Microsoft - cloud/AI/enterprise
+AAPL,Tech,Apple - consumer tech
+AMZN,Tech,Amazon - e-commerce/cloud
+META,Tech,Meta - social/ads/AI
+NFLX,Tech,Netflix - streaming
+ORCL,Tech,Oracle - enterprise/cloud
+SNOW,Tech,Snowflake - data cloud
+DDOG,Tech,Datadog - observability
+ARM,Tech,ARM Holdings - chip design
+QCOM,Tech,Qualcomm - mobile chips
+NVDA,Semis,NVIDIA - AI chips leader
+AMD,Semis,AMD - AI/gaming chips
+AVGO,Semis,Broadcom - diversified semi
+TSM,Semis,Taiwan Semi - foundry
+IREN,Crypto/Mining,Iris Energy - BTC miner
+CORZ,Crypto/Mining,Core Scientific - BTC miner
+HIVE,Crypto/Mining,Hive Digital - BTC miner
+COIN,Crypto,Coinbase - crypto exchange
+MSTR,Crypto,MicroStrategy - BTC proxy
+TSLA,EV/Growth,Tesla - EV/energy/AI
+UBER,EV/Growth,Uber - rideshare/delivery
+RDDT,Growth,Reddit - social platform
+HIMS,Growth,Hims & Hers - telehealth
+LULU,Retail,Lululemon - athleisure
+COST,Retail,Costco - warehouse retail
+OUST,LIDAR/Hardware,Ouster - LIDAR sensors
+PL,Space,Planet Labs - satellite imagery
+RDW,Space,Redwire - space infrastructure
+SMCI,Hardware,Super Micro - AI servers
+NBIS,AI Infra,Nebius - AI infrastructure
+ZETA,AdTech,Zeta Global - marketing tech
+TEM,AI/Health,Tempus AI - healthcare AI
+BABA,China,Alibaba - e-commerce/cloud
+JD,China,JD.com - e-commerce
+PDD,China,Pinduoduo/Temu parent
+BIDU,China,Baidu - search/AI
+ABT,Healthcare,Abbott Labs - medical devices
+UNH,Healthcare,UnitedHealth - insurance/services
+GS,Financials,Goldman Sachs - investment bank
+JPM,Financials,JPMorgan - bank
+XOM,Energy,Exxon Mobil - oil major
+CVX,Energy,Chevron - oil major
+OXY,Energy,Occidental - oil/Buffett holding
+SLB,Energy,Schlumberger - oil services
+EOSE,Energy Storage,Eos Energy - grid storage
+FCX,Materials,Freeport McMoRan - copper
+NUE,Materials,Nucor - steel
+LIN,Materials,Linde - industrial gases
+CAT,Industrials,Caterpillar - heavy equipment
+DE,Industrials,Deere - ag equipment
+GE,Industrials,GE Aerospace - aviation/energy
+LMT,Defense,Lockheed Martin - defense
+RTX,Defense,Raytheon - defense/aerospace
+GD,Defense,General Dynamics - defense
+CRVW,Industrials,CareView Communications
+XYZ,Other,Block Inc (formerly Square)
