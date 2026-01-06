@@ -25,7 +25,7 @@ TAG        = latest
 
 CSV  =
 T    = AAPL
-TOP  = 5
+TOP  = 10
 OUT  = rot_report.md
 
 REPORT_DIR = ./reports

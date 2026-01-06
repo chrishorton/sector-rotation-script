@@ -389,7 +389,7 @@ def calculate_consolidation_score(prices: pd.Series, period: int = 10) -> dict:
     else:
         bb_percentile = 50.0
 
-    is_squeezing = bb_percentile < 30
+    is_squeezing = bb_percentile < 20  # tighter threshold = higher conviction
 
     return {
         "valid": True,
@@ -715,7 +715,7 @@ def stop_level(stock: dict) -> Tuple[str, str]:
     return "N/A", "N/A"
 
 
-def select_top_bottom_sectors(sector_analyses: List[dict], n: int = 3) -> Tuple[List[dict], List[dict]]:
+def select_top_bottom_sectors(sector_analyses: List[dict], n: int = 5) -> Tuple[List[dict], List[dict]]:
     ranked = rank_sectors(sector_analyses, "rs_8")
     if len(ranked) <= n:
         return ranked, []
@@ -745,11 +745,13 @@ def apply_sector_bonus(stock_analyses: List[dict], sector_analyses: List[dict]) 
         }
 
         if stock_sector in sector_rs:
-            bonus = max(0.0, sector_rs.get(stock_sector, 0.0) * 2)
+            rs_val = sector_rs.get(stock_sector, 0.0)
+            bonus = rs_val * 2 if rs_val > 0 else -5.0  # -5 penalty for outflow sectors
         else:
             mapped = mapping.get(stock_sector)
             if mapped and mapped in sector_rs:
-                bonus = max(0.0, sector_rs.get(mapped, 0.0) * 2)
+                rs_val = sector_rs.get(mapped, 0.0)
+                bonus = rs_val * 2 if rs_val > 0 else -5.0  # -5 penalty for outflow sectors
 
         s["sector_bonus"] = float(bonus)
         s["total_score"] = float(s.get("setup_score", 0.0) + bonus)
@@ -774,7 +776,7 @@ def render_markdown_dashboard(
 ) -> str:
     ts = now_et().strftime("%Y-%m-%d %H:%M:%S %Z")
     regime = market_regime_label(sector_analyses)
-    inflows, outflows = select_top_bottom_sectors(sector_analyses, 3)
+    inflows, outflows = select_top_bottom_sectors(sector_analyses, 5)
     picks = top_setups(stock_analyses, top_n)
 
     spy_ema = benchmark.get("ema_structure", {})
@@ -815,7 +817,7 @@ def render_markdown_dashboard(
 - SPY ROC(8): {fmt_pct(benchmark.get('roc_8'))} | ROC(21): {fmt_pct(benchmark.get('roc_21'))}
 - Regime: {regime}
 
-## 2) Sector Flow (Top 3 / Bottom 3)
+## 2) Sector Flow (Top 5 / Bottom 5)
 
 ### Inflows (leaders)
 | Rank | Sector | ETF | RS(8) | Trend | Vol |
@@ -861,7 +863,7 @@ def write_markdown_report(md_text: str, out_path: str = "rot_report.md") -> str:
 def print_dashboard(report_type: str, benchmark: dict, sector_analyses: List[dict], stock_analyses: List[dict], top_n: int):
     ts = now_et().strftime("%Y-%m-%d %H:%M:%S %Z")
     regime = market_regime_label(sector_analyses)
-    inflows, outflows = select_top_bottom_sectors(sector_analyses, 3)
+    inflows, outflows = select_top_bottom_sectors(sector_analyses, 5)
     picks = top_setups(stock_analyses, top_n)
 
     spy_ema = benchmark.get("ema_structure", {})
@@ -874,7 +876,7 @@ def print_dashboard(report_type: str, benchmark: dict, sector_analyses: List[dic
     print(f"SPY ${benchmark['price']:.2f} | Trend: {spy_trend} | ROC8 {fmt_pct(benchmark.get('roc_8'))} | Regime: {regime}")
     print()
 
-    print("SECTOR FLOW (Top 3 / Bottom 3)")
+    print("SECTOR FLOW (Top 5 / Bottom 5)")
     def _sec_line(s):
         ema = s.get("ema_structure", {})
         trend = f"{ema.get('trend_emoji','')} {ema.get('trend','N/A')}".strip()
@@ -908,7 +910,7 @@ def print_dashboard(report_type: str, benchmark: dict, sector_analyses: List[dic
 def print_focus(report_type: str, benchmark: dict, sector_analyses: List[dict], stock_analyses: List[dict], top_n: int):
     ts = now_et().strftime("%Y-%m-%d %H:%M:%S %Z")
     regime = market_regime_label(sector_analyses)
-    inflows, outflows = select_top_bottom_sectors(sector_analyses, 3)
+    inflows, outflows = select_top_bottom_sectors(sector_analyses, 5)
     picks = top_setups(stock_analyses, top_n)
 
     spy_ema = benchmark.get("ema_structure", {})

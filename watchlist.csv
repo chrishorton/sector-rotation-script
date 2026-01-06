@@ -1,72 +1,116 @@
 ticker,sector,notes
-IONQ,Quantum,Quantum computing leader
-RGTI,Quantum,Rigetti quantum computing
-GOOGL,Tech,Alphabet - search/cloud/AI
-MSFT,Tech,Microsoft - cloud/AI/enterprise
-AAPL,Tech,Apple - consumer tech
-AMZN,Tech,Amazon - e-commerce/cloud
-META,Tech,Meta - social/ads/AI
-NFLX,Tech,Netflix - streaming
-ORCL,Tech,Oracle - enterprise/cloud
-SNOW,Tech,Snowflake - data cloud
-DDOG,Tech,Datadog - observability
-ARM,Tech,ARM Holdings - chip design
-QCOM,Tech,Qualcomm - mobile chips
-NVDA,Semis,NVIDIA - AI chips leader
-AMD,Semis,AMD - AI/gaming chips
-AVGO,Semis,Broadcom - diversified semi
-TSM,Semis,Taiwan Semi - foundry
-IREN,Crypto/Mining,Iris Energy - BTC miner
-CORZ,Crypto/Mining,Core Scientific - BTC miner
-HIVE,Crypto/Mining,Hive Digital - BTC miner
-COIN,Crypto,Coinbase - crypto exchange
-MSTR,Crypto,MicroStrategy - BTC proxy
-TSLA,EV/Growth,Tesla - EV/energy/AI
-UBER,EV/Growth,Uber - rideshare/delivery
-RDDT,Growth,Reddit - social platform
-HIMS,Growth,Hims & Hers - telehealth
-LULU,Retail,Lululemon - athleisure
+IONQ,Quantum,Quantum computing hardware and software
+RGTI,Quantum,Rigetti Computing - superconducting quantum systems
+GOOGL,Technology,Alphabet - search advertising cloud and AI
+MSFT,Technology,Microsoft - cloud AI enterprise software
+AAPL,Technology,Apple - consumer electronics and services
+AMZN,Technology,Amazon - e-commerce and AWS cloud
+META,Technology,Meta Platforms - social media advertising and AI
+NFLX,Technology,Netflix - global streaming platform
+ORCL,Technology,Oracle - enterprise software and cloud infrastructure
+SNOW,Technology,Snowflake - cloud-native data platform
+DDOG,Technology,Datadog - observability and monitoring software
+ARM,Semiconductors,ARM Holdings - semiconductor IP and CPU architecture
+QCOM,Semiconductors,Qualcomm - mobile and wireless chipsets
+NVDA,Semiconductors,NVIDIA - AI GPUs and accelerated computing leader
+AMD,Semiconductors,AMD - CPUs and AI accelerators
+AVGO,Semiconductors,Broadcom - diversified semiconductor and infrastructure software
+TSM,Semiconductors,Taiwan Semiconductor Manufacturing - advanced chip foundry
+INTC,Semiconductors,Intel - CPUs and semiconductor manufacturing
+AMAT,Semiconductor Equipment,Applied Materials - chip fabrication equipment
+ASML,Semiconductor Equipment,ASML - EUV lithography systems
+ALAB,Semiconductors,Astera Labs - data center connectivity and CXL silicon
+LITE,Optical Networking,Lumentum - optical components for telecom and data centers
+CIEN,Optical Networking,Ciena - optical transport networking systems
+COHR,Optical/Photonics,Coherent Corp - lasers and photonics
+MU,Data Storage,Micron Technology - DRAM and NAND memory
+SNDK,Data Storage,SanDisk - flash memory and storage solutions
+WDC,Data Storage,Western Digital - HDD and flash storage
+STX,Data Storage,Seagate Technology - hard disk drive manufacturer
+SMCI,Hardware,Super Micro Computer - AI-optimized server hardware
+NBIS,AI Infrastructure,Nebius - AI cloud and data center infrastructure
+CRWV,AI Infrastructure,CoreWeave - GPU-accelerated AI cloud provider
+APLD,Data Centers,Applied Digital - HPC and AI-focused data centers
+CIFR,Data Centers/Crypto,Cipher Mining - bitcoin mining and data center infrastructure
+IREN,Data Centers/Crypto,Iris Energy - renewable-powered data centers and BTC mining
+HUT,Data Centers/Crypto,Hut 8 - bitcoin mining and HPC data centers
+BITF,Data Centers/Crypto,Bitfarms - bitcoin mining and infrastructure
+COIN,Crypto,Coinbase - cryptocurrency exchange
+MSTR,Crypto,MicroStrategy - bitcoin treasury strategy
+IREN,Crypto/Mining,Iris Energy - BTC mining (dual exposure)
+CORZ,Crypto/Mining,Core Scientific - BTC mining and hosting
+HIVE,Crypto/Mining,Hive Digital - crypto mining infrastructure
+TSLA,EV/Growth,Tesla - electric vehicles energy storage and AI
+UBER,EV/Growth,Uber - mobility and delivery platform
+RDDT,Growth,Reddit - online community and advertising platform
+HIMS,Growth,Hims & Hers - direct-to-consumer telehealth
+LULU,Retail,Lululemon - athletic apparel
 COST,Retail,Costco - warehouse retail
-OUST,LIDAR/Hardware,Ouster - LIDAR sensors
-PL,Space,Planet Labs - satellite imagery
-RDW,Space,Redwire - space infrastructure
-SMCI,Hardware,Super Micro - AI servers
-NBIS,AI Infra,Nebius - AI infrastructure
-ZETA,AdTech,Zeta Global - marketing tech
-TEM,AI/Health,Tempus AI - healthcare AI
-BABA,China,Alibaba - e-commerce/cloud
-JD,China,JD.com - e-commerce
-PDD,China,Pinduoduo/Temu parent
-BIDU,China,Baidu - search/AI
-ABT,Healthcare,Abbott Labs - medical devices
-UNH,Healthcare,UnitedHealth - insurance/services
-GS,Financials,Goldman Sachs - investment bank
-JPM,Financials,JPMorgan - bank
-XOM,Energy,Exxon Mobil - oil major
-CVX,Energy,Chevron - oil major
-OXY,Energy,Occidental - oil/Buffett holding
-SLB,Energy,Schlumberger - oil services
-EOSE,Energy Storage,Eos Energy - grid storage
-FCX,Materials,Freeport McMoRan - copper
-NUE,Materials,Nucor - steel
+PL,Space,Planet Labs - earth observation satellite imagery
+ASTS,Space,AST SpaceMobile - satellite-to-cell broadband
+LUNR,Space,Intuitive Machines - lunar landers and services
+RKLB,Space/Defense,Rocket Lab - launch vehicles and space systems
+RDW,Space Infrastructure,Redwire - space components and infrastructure
+JOBY,Aerospace/eVTOL,Joby Aviation - electric vertical takeoff aircraft
+AMTM,Aerospace/Defense Services,Amentum Holdings - government engineering and aerospace services
+HWM,Aerospace,Howmet Aerospace - aerospace components and materials
+BA,Defense/Aerospace,Boeing - aerospace and defense manufacturing
+LMT,Defense,Lockheed Martin - aerospace and defense prime
+RTX,Defense,RTX Corporation - missiles aerospace and defense systems
+GD,Defense,General Dynamics - defense platforms and IT
+NOC,Defense,Northrop Grumman - advanced aerospace systems
+LHX,Defense,L3Harris - defense communications and electronics
+AVAV,Defense,AeroVironment - unmanned aircraft systems
+KTOS,Defense/Drones,Kratos Defense - unmanned and hypersonic systems
+ONDS,Defense/Drones,Ondas Holdings - defense and industrial drones
+UMAC,Drones,Unusual Machines - FPV drones and components
+OUST,Lidar/Hardware,Ouster - lidar sensors
+BABA,China Tech,Alibaba - e-commerce and cloud computing
+JD,China Tech,JD.com - logistics-driven e-commerce
+PDD,China Tech,PDD Holdings - Pinduoduo and Temu
+BIDU,China Tech,Baidu - search and AI
+FUTU,China Fintech,Futu Holdings - online brokerage
+TIGR,China Fintech,UP Fintech (Tiger Brokers) - online brokerage
+GS,Financials,Goldman Sachs - investment banking
+JPM,Financials,JPMorgan Chase - global banking
+XYZ,Fintech,Block Inc - payments ecosystem
+SOFI,Fintech,SoFi Technologies - digital banking
+HOOD,Fintech/Brokerage,Robinhood Markets - retail brokerage
+PGY,Fintech,Pagaya - AI credit underwriting
+LMND,InsurTech,Lemonade - digital insurance
+OSCR,Healthcare Insurance,Oscar Health - tech-enabled health insurance
+ABT,Healthcare,Abbott Laboratories - diagnostics and devices
+UNH,Healthcare,UnitedHealth Group - insurance and services
+LLY,Pharmaceuticals,Eli Lilly - diabetes obesity oncology drugs
+HROW,Healthcare/Pharma,Harrow Inc - ophthalmic pharmaceuticals
+TEM,AI/Healthcare,Tempus AI - clinical and genomic AI
+XOM,Energy,Exxon Mobil - integrated oil and gas
+CVX,Energy,Chevron - integrated oil and gas
+OXY,Energy,Occidental Petroleum - oil gas and carbon capture
+SLB,Energy,Schlumberger - oilfield services
+VLO,Energy,Valero Energy - refining
+FTI,Energy,TechnipFMC - subsea energy engineering
+BNO,Energy ETF,Brent crude oil exposure
+OILK,Energy ETF,Crude oil strategy ETF
+VDE,Energy ETF,Vanguard Energy ETF
+BE,Clean Energy,Bloom Energy - solid oxide fuel cells
+GEV,Energy/Power Systems,GE Vernova - grid and power generation
+EOSE,Energy Storage,Eos Energy - zinc-based long-duration batteries
+STEM,Energy Software,Stem Inc - AI energy storage optimization
+TE,Electronic Components,TE Connectivity - connectors and sensors
+LEU,Nuclear Fuel,Centrus Energy - uranium enrichment
+CEG,Nuclear Power,Constellation Energy - nuclear power operator
+CCJ,Nuclear Fuel,Cameco - uranium mining
+UUUU,Nuclear/Materials,Energy Fuels - uranium and rare earths
+UEC,Nuclear Fuel,Uranium Energy Corp - uranium mining
+LAR,Lithium,Lithium Argentina - lithium brine projects
+ALB,Lithium,Albemarle - global lithium producer
+SLI,Lithium,Standard Lithium - DLE lithium projects
+SGML,Lithium,Sigma Lithium - hard-rock lithium producer
+FCX,Materials,Freeport-McMoRan - copper mining
+NUE,Materials,Nucor - steel manufacturing
 LIN,Materials,Linde - industrial gases
 CAT,Industrials,Caterpillar - heavy equipment
-DE,Industrials,Deere - ag equipment
-GE,Industrials,GE Aerospace - aviation/energy
-LMT,Defense,Lockheed Martin - defense
-RTX,Defense,Raytheon - defense/aerospace
-GD,Defense,General Dynamics - defense
-CRVW,Industrials,CareView Communications
-XYZ,Other,Block Inc (formerly Square)
-BNO,Energy ETF,Brent crude oil ETF - geopolitical risk premium
-OILK,Energy ETF,Crude oil volatility/leveraged ETF
-VDE,Energy ETF,Vanguard Energy ETF - broad US energy
-FTI,Energy,TechnipFMC - energy services/equipment
-VLO,Energy,Valero - refining
-BA,Defense,Boeing - defense division/aerospace
-NOC,Defense,Northrop Grumman - stealth/aerospace
-LHX,Defense,L3Harris - comms/electronics defense
-AVAV,Defense,AeroVironment - drone/tactical systems
-HWM,Aerospace,Howmet Aerospace - aerospace components
-RKLB,Space/Defense,Rocket Lab - space/defense (high vol)
-PPA,Defense ETF,Invesco Aerospace & Defense ETF
+DE,Industrials,Deere & Company - agricultural machinery
+GE,Industrials,GE Aerospace - jet engines and aviation systems
+PPA,Defense ETF,Invesco Aerospace and Defense ETF
