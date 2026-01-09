@@ -76,6 +76,10 @@ help:
 	@printf "CUSTOM WATCHLIST:\n"
 	@printf "  make run  CSV=/abs/path/watchlist.csv\n"
 	@printf "  make md   CSV=/abs/path/watchlist.csv OUT=rot_report.md\n\n"
+	@printf "HISTORY TRACKING:\n"
+	@printf "  make snapshot              Save daily snapshot to history/\n"
+	@printf "  make track-events          Track signal changes to history/\n"
+	@printf "  make snapshot-full         Both snapshot + events\n\n"
 	@printf "OTHER:\n"
 	@printf "  make json                  JSON output\n"
 	@printf "  make shell                 Bash inside container\n\n"
@@ -138,6 +142,29 @@ json:
 	$(DOCKER_RUN) $(MOUNT_CSV) $(IMAGE_NAME):$(TAG) $(CSV_FLAG) --json
 
 # =============================================================================
+# HISTORY TRACKING
+# =============================================================================
+
+HISTORY_DIR = ./history
+
+# Create history dir if missing
+$(HISTORY_DIR):
+	@mkdir -p $(HISTORY_DIR)
+
+# Common mount for history directory
+MOUNT_HISTORY := -v $(abspath $(HISTORY_DIR)):/app/history
+
+.PHONY: snapshot track-events snapshot-full
+snapshot: $(HISTORY_DIR)
+	$(DOCKER_RUN) $(MOUNT_CSV) $(MOUNT_HISTORY) $(IMAGE_NAME):$(TAG) $(CSV_FLAG) --save-snapshot
+
+track-events: $(HISTORY_DIR)
+	$(DOCKER_RUN) $(MOUNT_CSV) $(MOUNT_HISTORY) $(IMAGE_NAME):$(TAG) $(CSV_FLAG) --track-events
+
+snapshot-full: $(HISTORY_DIR)
+	$(DOCKER_RUN) $(MOUNT_CSV) $(MOUNT_HISTORY) $(IMAGE_NAME):$(TAG) $(CSV_FLAG) --save-snapshot --track-events
+
+# =============================================================================
 # CUSTOM WATCHLIST SHORTCUTS
 # (Use CSV=/abs/path/watchlist.csv to mount, no separate targets needed.)
 # =============================================================================
@@ -192,4 +219,4 @@ clean:
 # =============================================================================
 # PHONY LIST
 # =============================================================================
-.PHONY: build rebuild run focus weekend weekend-focus md md-weekend prompt-daily prompt-weekly json custom custom-focus md-custom clean
+.PHONY: build rebuild run focus weekend weekend-focus md md-weekend prompt-daily prompt-weekly json snapshot track-events snapshot-full custom custom-focus md-custom clean

@@ -891,8 +891,8 @@ def print_dashboard(report_type: str, benchmark: dict, sector_analyses: List[dic
     print()
 
     print(f"ACTION LIST (Top {top_n}) — triggers + stops")
-    print(f"{'#':<2} {'Ticker':<7} {'Score':<5} {'RS8':<8} {'Trend':<16} {'Flags':<22} {'BO':<10} {'PB':<28} {'Stop':<10} {'Risk':<6}")
-    print("-" * 110)
+    print(f"{'#':<2} {'Ticker':<7} {'Sector':<15} {'Score':<5} {'RS8':<8} {'Trend':<16} {'Flags':<22} {'BO':<10} {'PB':<28} {'Stop':<10} {'Risk':<6}")
+    print("-" * 125)
     for i, s in enumerate(picks, 1):
         ema = s.get("ema_structure", {})
         trend = f"{ema.get('trend_emoji','')} {ema.get('trend','N/A')}".strip()
@@ -900,8 +900,9 @@ def print_dashboard(report_type: str, benchmark: dict, sector_analyses: List[dic
         bo = breakout_trigger(s)
         pb = pullback_trigger(s)[:27] + ("…" if len(pullback_trigger(s)) > 27 else "")
         st, risk = stop_level(s)
+        sector = s.get('sector', 'Unknown')[:14]  # Truncate if too long
         print(
-            f"{i:<2} {s['ticker']:<7} {int(round(s.get('total_score', s.get('setup_score',0)))):<5} "
+            f"{i:<2} {s['ticker']:<7} {sector:<15} {int(round(s.get('total_score', s.get('setup_score',0)))):<5} "
             f"{fmt_pct(s.get('rs_8')):<8} {trend:<16} {flags:<22} {bo:<10} {pb:<28} {st:<10} {risk:<6}"
         )
     print()
@@ -935,8 +936,9 @@ def print_focus(report_type: str, benchmark: dict, sector_analyses: List[dict], 
 
         trend = f"{ema.get('trend_emoji','')} {ema.get('trend','N/A')}".strip()
         flags = build_flags(s)
+        sector = s.get('sector', 'Unknown')
 
-        print(f"- {s['ticker']} @ ${s['price']:.2f} | Score {int(round(s.get('total_score', s.get('setup_score',0))))} | RS8 {fmt_pct(s.get('rs_8'))} | {trend}")
+        print(f"- {s['ticker']} ({sector}) @ ${s['price']:.2f} | Score {int(round(s.get('total_score', s.get('setup_score',0))))} | RS8 {fmt_pct(s.get('rs_8'))} | {trend}")
         if rsi.get("valid"):
             print(f"  RSI {rsi['rsi']:.0f} {rsi.get('emoji','')} | Vol {fmt_float(s.get('volume_ratio'),1)}x | BB%ile {fmt_float(consol.get('bb_percentile'),0)}")
         print(f"  Flags: {flags}")
@@ -983,8 +985,9 @@ def run_single_ticker_analysis(ticker: str, data: pd.DataFrame, benchmark_prices
     flags = build_flags(stock)
 
     trend = f"{ema.get('trend_emoji','')} {ema.get('trend','N/A')}".strip()
+    sector = stock.get('sector', 'Unknown')
     print()
-    print(f"{ticker} @ ${stock['price']:.2f}")
+    print(f"{ticker} ({sector}) @ ${stock['price']:.2f}")
     print(f"Score: {int(round(stock.get('total_score', stock.get('setup_score',0))))} | RS8 {fmt_pct(stock.get('rs_8'))} | Trend {trend} | Vol {fmt_float(stock.get('volume_ratio'),1)}x")
     if rsi.get("valid"):
         print(f"RSI: {rsi['rsi']:.0f} {rsi.get('emoji','')}")
@@ -1101,6 +1104,316 @@ Output format:
 
 
 # =============================================================================
+# HISTORY TRACKING
+# =============================================================================
+
+HISTORY_DIR = "history"
+
+
+def ensure_history_dir():
+    """Create history directory if it doesn't exist."""
+    os.makedirs(HISTORY_DIR, exist_ok=True)
+
+
+def save_daily_snapshot(benchmark: dict, sector_analyses: List[dict], stock_analyses: List[dict]):
+    """Save full state snapshot for all stocks and sectors."""
+    ensure_history_dir()
+    snapshot_path = os.path.join(HISTORY_DIR, "daily_snapshots.csv")
+    timestamp = now_et().strftime("%Y-%m-%d %H:%M:%S")
+    date_only = now_et().strftime("%Y-%m-%d")
+
+    rows = []
+
+    # Add SPY/benchmark row
+    spy_ema = benchmark.get("ema_structure", {})
+    rows.append({
+        "date": date_only,
+        "timestamp": timestamp,
+        "ticker": BENCHMARK,
+        "type": "benchmark",
+        "sector": "Market",
+        "price": benchmark.get("price"),
+        "roc_8": benchmark.get("roc_8"),
+        "roc_21": benchmark.get("roc_21"),
+        "rs_8": 0.0,
+        "rs_21": 0.0,
+        "setup_score": 0.0,
+        "total_score": 0.0,
+        "trend": spy_ema.get("trend", "N/A"),
+        "rsi": None,
+        "volume_ratio": benchmark.get("volume_ratio"),
+        "divergence": None,
+        "is_squeezing": False,
+        "bb_percentile": None,
+    })
+
+    # Add sector rows
+    for s in sector_analyses:
+        if not s.get("valid"):
+            continue
+        ema = s.get("ema_structure", {})
+        rows.append({
+            "date": date_only,
+            "timestamp": timestamp,
+            "ticker": s.get("etf"),
+            "type": "sector",
+            "sector": s.get("sector"),
+            "price": s.get("price"),
+            "roc_8": s.get("roc_8"),
+            "roc_21": s.get("roc_21"),
+            "rs_8": s.get("rs_8"),
+            "rs_21": s.get("rs_21"),
+            "setup_score": 0.0,
+            "total_score": 0.0,
+            "trend": ema.get("trend", "N/A"),
+            "rsi": None,
+            "volume_ratio": s.get("volume_ratio"),
+            "divergence": None,
+            "is_squeezing": False,
+            "bb_percentile": None,
+        })
+
+    # Add stock rows
+    for s in stock_analyses:
+        if not s.get("valid"):
+            continue
+        ema = s.get("ema_structure", {})
+        rsi = s.get("rsi", {})
+        consol = s.get("consolidation", {})
+        rows.append({
+            "date": date_only,
+            "timestamp": timestamp,
+            "ticker": s.get("ticker"),
+            "type": "stock",
+            "sector": s.get("sector"),
+            "price": s.get("price"),
+            "roc_8": s.get("roc_8"),
+            "roc_21": s.get("roc_21"),
+            "rs_8": s.get("rs_8"),
+            "rs_21": s.get("rs_21"),
+            "setup_score": s.get("setup_score"),
+            "total_score": s.get("total_score"),
+            "trend": ema.get("trend", "N/A"),
+            "rsi": rsi.get("rsi") if rsi.get("valid") else None,
+            "volume_ratio": s.get("volume_ratio"),
+            "divergence": s.get("divergence"),
+            "is_squeezing": consol.get("is_squeezing", False),
+            "bb_percentile": consol.get("bb_percentile"),
+        })
+
+    # Write to CSV
+    df = pd.DataFrame(rows)
+    if os.path.exists(snapshot_path):
+        # Append without header
+        df.to_csv(snapshot_path, mode="a", header=False, index=False)
+    else:
+        # Create with header
+        df.to_csv(snapshot_path, mode="w", header=True, index=False)
+
+    return len(rows)
+
+
+def track_signal_events(stock_analyses: List[dict], previous_snapshot_path: str = None):
+    """Detect and log signal changes by comparing to previous snapshot."""
+    ensure_history_dir()
+    events_path = os.path.join(HISTORY_DIR, "signal_events.csv")
+    timestamp = now_et().strftime("%Y-%m-%d %H:%M:%S")
+    date_only = now_et().strftime("%Y-%m-%d")
+
+    # Load previous snapshot if exists
+    snapshot_path = os.path.join(HISTORY_DIR, "daily_snapshots.csv")
+    if not os.path.exists(snapshot_path):
+        # No previous data, can't track changes yet
+        return 0
+
+    try:
+        prev_df = pd.read_csv(snapshot_path)
+        # Get most recent snapshot for each ticker (not today's)
+        prev_df = prev_df[prev_df["date"] != date_only]
+        if prev_df.empty:
+            return 0
+        prev_df = prev_df.sort_values("timestamp").groupby("ticker").tail(1)
+    except Exception:
+        return 0
+
+    events = []
+
+    for s in stock_analyses:
+        if not s.get("valid"):
+            continue
+
+        ticker = s.get("ticker")
+        prev = prev_df[prev_df["ticker"] == ticker]
+
+        if prev.empty:
+            # New ticker, log as "ADDED"
+            events.append({
+                "date": date_only,
+                "timestamp": timestamp,
+                "ticker": ticker,
+                "event_type": "ADDED_TO_WATCHLIST",
+                "description": f"First appearance in tracking (Score: {s.get('total_score', 0):.0f})",
+                "score_before": None,
+                "score_after": s.get("total_score"),
+                "rs_8_before": None,
+                "rs_8_after": s.get("rs_8"),
+            })
+            continue
+
+        prev_row = prev.iloc[0]
+
+        # Check for setup score changes
+        prev_score = prev_row.get("total_score", 0)
+        curr_score = s.get("total_score", 0)
+
+        # Significant score change (>20 points)
+        if abs(curr_score - prev_score) >= 20:
+            direction = "IMPROVED" if curr_score > prev_score else "WEAKENED"
+            events.append({
+                "date": date_only,
+                "timestamp": timestamp,
+                "ticker": ticker,
+                "event_type": f"SETUP_{direction}",
+                "description": f"Score changed from {prev_score:.0f} to {curr_score:.0f}",
+                "score_before": prev_score,
+                "score_after": curr_score,
+                "rs_8_before": prev_row.get("rs_8"),
+                "rs_8_after": s.get("rs_8"),
+            })
+
+        # Check for divergence changes
+        prev_div = prev_row.get("divergence")
+        curr_div = s.get("divergence")
+        if prev_div != curr_div and curr_div is not None:
+            events.append({
+                "date": date_only,
+                "timestamp": timestamp,
+                "ticker": ticker,
+                "event_type": f"DIVERGENCE_{curr_div}",
+                "description": f"{curr_div} divergence detected (RS improving while price consolidates)",
+                "score_before": prev_score,
+                "score_after": curr_score,
+                "rs_8_before": prev_row.get("rs_8"),
+                "rs_8_after": s.get("rs_8"),
+            })
+
+        # Check for squeeze entry/exit
+        prev_squeeze = prev_row.get("is_squeezing", False)
+        curr_squeeze = s.get("consolidation", {}).get("is_squeezing", False)
+        if prev_squeeze != curr_squeeze:
+            event_type = "ENTERED_SQUEEZE" if curr_squeeze else "EXITED_SQUEEZE"
+            events.append({
+                "date": date_only,
+                "timestamp": timestamp,
+                "ticker": ticker,
+                "event_type": event_type,
+                "description": f"Bollinger Band squeeze {'started' if curr_squeeze else 'ended'}",
+                "score_before": prev_score,
+                "score_after": curr_score,
+                "rs_8_before": prev_row.get("rs_8"),
+                "rs_8_after": s.get("rs_8"),
+            })
+
+        # Check for RS zero-cross (bullish: negative to positive, bearish: positive to negative)
+        prev_rs = prev_row.get("rs_8", 0)
+        curr_rs = s.get("rs_8", 0)
+        if prev_rs <= 0 < curr_rs:
+            events.append({
+                "date": date_only,
+                "timestamp": timestamp,
+                "ticker": ticker,
+                "event_type": "RS_TURNED_POSITIVE",
+                "description": f"RS crossed above zero (now outperforming SPY)",
+                "score_before": prev_score,
+                "score_after": curr_score,
+                "rs_8_before": prev_rs,
+                "rs_8_after": curr_rs,
+            })
+        elif prev_rs >= 0 > curr_rs:
+            events.append({
+                "date": date_only,
+                "timestamp": timestamp,
+                "ticker": ticker,
+                "event_type": "RS_TURNED_NEGATIVE",
+                "description": f"RS crossed below zero (now underperforming SPY)",
+                "score_before": prev_score,
+                "score_after": curr_score,
+                "rs_8_before": prev_rs,
+                "rs_8_after": curr_rs,
+            })
+
+    if not events:
+        return 0
+
+    # Write events to CSV
+    df = pd.DataFrame(events)
+    if os.path.exists(events_path):
+        df.to_csv(events_path, mode="a", header=False, index=False)
+    else:
+        df.to_csv(events_path, mode="w", header=True, index=False)
+
+    return len(events)
+
+
+def log_trade(ticker: str, action: str, entry_price: float, quantity: int = None,
+              strategy: str = None, notes: str = None, exit_price: float = None,
+              stop_loss: float = None, target: float = None):
+    """Manually log a trade to the journal."""
+    ensure_history_dir()
+    trades_path = os.path.join(HISTORY_DIR, "trades.csv")
+    timestamp = now_et().strftime("%Y-%m-%d %H:%M:%S")
+    date_only = now_et().strftime("%Y-%m-%d")
+
+    row = {
+        "date": date_only,
+        "timestamp": timestamp,
+        "ticker": ticker.upper(),
+        "action": action.upper(),  # OPEN, CLOSE, ADJUST
+        "entry_price": entry_price,
+        "exit_price": exit_price,
+        "quantity": quantity,
+        "strategy": strategy,  # e.g., "CALL_SPREAD", "LONG_CALL", "SHARES"
+        "stop_loss": stop_loss,
+        "target": target,
+        "pnl": (exit_price - entry_price) * quantity if exit_price and entry_price and quantity else None,
+        "pnl_pct": ((exit_price - entry_price) / entry_price * 100) if exit_price and entry_price else None,
+        "notes": notes,
+    }
+
+    df = pd.DataFrame([row])
+    if os.path.exists(trades_path):
+        df.to_csv(trades_path, mode="a", header=False, index=False)
+    else:
+        df.to_csv(trades_path, mode="w", header=True, index=False)
+
+    return True
+
+
+def log_watchlist_change(ticker: str, action: str, reason: str):
+    """Log when a ticker is added or removed from watchlist."""
+    ensure_history_dir()
+    changes_path = os.path.join(HISTORY_DIR, "watchlist_changes.csv")
+    timestamp = now_et().strftime("%Y-%m-%d %H:%M:%S")
+    date_only = now_et().strftime("%Y-%m-%d")
+
+    row = {
+        "date": date_only,
+        "timestamp": timestamp,
+        "ticker": ticker.upper(),
+        "action": action.upper(),  # ADD or REMOVE
+        "reason": reason,
+    }
+
+    df = pd.DataFrame([row])
+    if os.path.exists(changes_path):
+        df.to_csv(changes_path, mode="a", header=False, index=False)
+    else:
+        df.to_csv(changes_path, mode="w", header=True, index=False)
+
+    return True
+
+
+# =============================================================================
 # MAIN
 # =============================================================================
 
@@ -1113,6 +1426,8 @@ def run_analysis(
     md_path: str = None,
     focus: bool = False,
     ticker: str = None,
+    save_snapshot: bool = False,
+    track_events: bool = False,
 ):
     global WATCHLIST, WATCHLIST_SECTORS
     WATCHLIST, WATCHLIST_SECTORS = load_watchlist_quiet(watchlist_csv)
@@ -1163,6 +1478,18 @@ def run_analysis(
 
     report_type = determine_report_type(force_weekend)
 
+    # History tracking
+    if save_snapshot:
+        num_rows = save_daily_snapshot(benchmark, sector_analyses, stock_analyses)
+        print(f"💾 Saved daily snapshot: {num_rows} rows to history/daily_snapshots.csv")
+
+    if track_events:
+        num_events = track_signal_events(stock_analyses)
+        if num_events > 0:
+            print(f"📊 Logged {num_events} signal events to history/signal_events.csv")
+        else:
+            print("📊 No significant signal changes detected")
+
     if output_json:
         payload = {
             "timestamp": now_et().isoformat(),
@@ -1200,6 +1527,15 @@ Examples:
   python rot.py --weekend --focus        # weekend mode (same format)
   python rot.py --print-prompt daily     # print daily AI prompt
   python rot.py --print-prompt weekly    # print weekly AI prompt
+
+History tracking:
+  python rot.py --save-snapshot          # save full state to history/daily_snapshots.csv
+  python rot.py --track-events           # detect and log signal changes
+  python rot.py --save-snapshot --track-events  # both
+  python rot.py --log-trade AAPL OPEN 150.00 --quantity 10 --strategy "LONG_CALL" --notes "Breakout play"
+  python rot.py --log-trade AAPL CLOSE 155.00 --entry 150.00 --quantity 10
+  python rot.py --watchlist-add NVDA --reason "Strong RS + sector rotation"
+  python rot.py --watchlist-remove XYZ --reason "Weak setup, no edge"
 """,
     )
 
@@ -1217,10 +1553,66 @@ Examples:
         help="Print a copy/paste prompt to generate a trade plan from the markdown + news",
     )
 
+    # History tracking arguments
+    parser.add_argument("--save-snapshot", action="store_true", help="Save full state snapshot to history/daily_snapshots.csv")
+    parser.add_argument("--track-events", action="store_true", help="Track and log signal changes to history/signal_events.csv")
+    parser.add_argument("--log-trade", type=str, default=None, metavar="TICKER", help="Log a trade to history/trades.csv")
+    parser.add_argument("--action", type=str, choices=["OPEN", "CLOSE", "ADJUST"], help="Trade action (for --log-trade)")
+    parser.add_argument("--entry", type=float, help="Entry price (for --log-trade)")
+    parser.add_argument("--exit", type=float, help="Exit price (for --log-trade)")
+    parser.add_argument("--quantity", type=int, help="Position size (for --log-trade)")
+    parser.add_argument("--strategy", type=str, help="Strategy name (for --log-trade): e.g., LONG_CALL, CALL_SPREAD, SHARES")
+    parser.add_argument("--stop", type=float, help="Stop loss level (for --log-trade)")
+    parser.add_argument("--target", type=float, help="Target price (for --log-trade)")
+    parser.add_argument("--notes", type=str, help="Trade notes (for --log-trade)")
+    parser.add_argument("--watchlist-add", type=str, metavar="TICKER", help="Add ticker to watchlist change log")
+    parser.add_argument("--watchlist-remove", type=str, metavar="TICKER", help="Remove ticker from watchlist change log")
+    parser.add_argument("--reason", type=str, help="Reason for watchlist change")
+
     args = parser.parse_args()
 
     if args.print_prompt:
         print(prompt_daily() if args.print_prompt == "daily" else prompt_weekly())
+        return
+
+    # Handle trade logging
+    if args.log_trade:
+        if not args.action:
+            print("Error: --action is required when using --log-trade")
+            return
+        if not args.entry and args.action == "OPEN":
+            print("Error: --entry is required for OPEN action")
+            return
+
+        log_trade(
+            ticker=args.log_trade,
+            action=args.action,
+            entry_price=args.entry or 0.0,
+            exit_price=args.exit,
+            quantity=args.quantity,
+            strategy=args.strategy,
+            notes=args.notes,
+            stop_loss=args.stop,
+            target=args.target,
+        )
+        print(f"✅ Trade logged: {args.log_trade} {args.action} to history/trades.csv")
+        return
+
+    # Handle watchlist changes
+    if args.watchlist_add:
+        if not args.reason:
+            print("Error: --reason is required when using --watchlist-add")
+            return
+        log_watchlist_change(args.watchlist_add, "ADD", args.reason)
+        print(f"✅ Logged watchlist addition: {args.watchlist_add}")
+        return
+
+    if args.watchlist_remove:
+        if not args.reason:
+            print("Error: --reason is required when using --watchlist-remove")
+            return
+        log_watchlist_change(args.watchlist_remove, "REMOVE", args.reason)
+        print(f"✅ Logged watchlist removal: {args.watchlist_remove}")
         return
 
     run_analysis(
@@ -1231,6 +1623,8 @@ Examples:
         md_path=args.md,
         focus=args.focus,
         ticker=args.ticker.upper() if args.ticker else None,
+        save_snapshot=args.save_snapshot,
+        track_events=args.track_events,
     )
 
 
